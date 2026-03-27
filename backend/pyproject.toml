@@ -13,6 +13,8 @@ dependencies = [
     "pydantic-settings>=2.0",
     "python-dotenv",
     "requests",
+    "fastapi>=0.100",
+    "uvicorn[standard]",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +22,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov",
     "ruff",
+    "httpx",
 ]
 
 [tool.setuptools.packages.find]
