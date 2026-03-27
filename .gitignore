@@ -1,2 +1,21 @@
 /claude-local.md
 .sfdx/
+
+# Secrets
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Data
+data/*.db
+data/*.csv
+
+# Node
+node_modules/
+
+# Build
+dist/
+build/
