@@ -78,10 +78,10 @@ Example output:
   "predicted_winner": "KC",
   "confidence": 71.4,
   "factors": [
-    { "name": "recent_form",   "score": 40.0,  "weight": 0.412, "contribution": 16.5 },
-    { "name": "home_away",     "score": 33.3,  "weight": 0.294, "contribution":  9.8 },
-    { "name": "head_to_head",  "score": 33.3,  "weight": 0.235, "contribution":  7.8 },
-    { "name": "betting_lines", "score":  0.0,  "weight": 0.0,   "contribution":  0.0 }
+    { "name": "recent_form",   "score": 40.0, "weight": "...", "contribution": "..." },
+    { "name": "home_away",     "score": 33.3, "weight": "...", "contribution": "..." },
+    { "name": "head_to_head",  "score": 33.3, "weight": "...", "contribution": "..." },
+    { "name": "betting_lines", "score":  0.0, "weight": 0.0,  "contribution": 0.0   }
   ]
 }
 ```
@@ -90,14 +90,14 @@ Example output:
 
 Each factor produces a score from **-100 to +100** (positive = home team advantage). The engine applies configurable weights, normalises them to sum to 1.0 (excluding any skipped factors), and maps the weighted sum to a **0–100 confidence** scale.
 
-| Factor | Default weight | Source |
-|---|---|---|
-| Recent form | 35% | Last 5 games, recency-weighted (0.8× decay per game back) |
-| Home/away splits | 25% | Season win % at home vs. on the road |
-| Head-to-head | 20% | Last 10 meetings across all seasons |
-| Betting lines | 20% | The Odds API point spread (skipped if no key) |
+| Factor | Source |
+|--------|--------|
+| Recent form | Last N games, recency-weighted with geometric decay |
+| Home/away splits | Season win % at home vs. on the road |
+| Head-to-head | Historical meetings across seasons |
+| Betting lines | The Odds API point spread (skipped if no key) |
 
-Set your weights in `backend/.env` via `WEIGHT_RECENT_FORM`, `WEIGHT_HOME_AWAY`, etc. The repo's default is equal weights (0.25 each) — your actual tuning stays private.
+Weights and calibration parameters are set in `backend/.env` (gitignored) — see `.env.example` for the full list of variables. The repo ships with equal weights as a neutral default.
 
 ## Tests
 
