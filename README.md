@@ -10,14 +10,53 @@ source .venv/bin/activate
 pip install -e "backend/.[dev]"
 ```
 
-Copy the env template if you want betting-lines data (optional):
+Copy the env template and fill in your values:
 
 ```bash
 cp backend/.env.example backend/.env
-# then add your key from https://the-odds-api.com/
 ```
 
-## Usage
+`backend/.env` is gitignored — it's where your private configuration lives:
+
+| Variable | Purpose |
+|----------|---------|
+| `ODDS_API_KEY` | Free key from [the-odds-api.com](https://the-odds-api.com/) — betting lines factor is skipped if absent |
+| `WEIGHT_RECENT_FORM` / `_HOME_AWAY` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Your tuned factor weights (the engine normalises them, so relative values are all that matter) |
+| `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `H2H_GAMES` | Factor calibration parameters |
+
+The repo ships with neutral equal-weight defaults so the app runs out of the box. Set your own values in `.env` to apply your tuning.
+
+## Running the API
+
+```bash
+source .venv/bin/activate
+uvicorn app.main:app --reload --app-dir backend
+```
+
+The API is then available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/weeks?season=` | List weeks with game counts |
+| `GET` | `/api/v1/predictions/{week}?season=` | All predictions for a week |
+| `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game detail |
+| `POST` | `/api/v1/refresh` | Re-download and cache data for a season |
+
+`game_id` format is `{home}-{away}` in lowercase, e.g. `kc-buf`.
+
+**Example:**
+
+```bash
+# Fetch all week 1 predictions for the 2024 season
+curl "http://localhost:8000/api/v1/predictions/1?season=2024"
+
+# Refresh cached data before game day
+curl -X POST http://localhost:8000/api/v1/refresh -H "Content-Type: application/json" -d '{"season": 2024}'
+```
+
+## Python usage (without the server)
 
 ```python
 from app.data.loader import load_schedules
@@ -58,7 +97,7 @@ Each factor produces a score from **-100 to +100** (positive = home team advanta
 | Head-to-head | 20% | Last 10 meetings across all seasons |
 | Betting lines | 20% | The Odds API point spread (skipped if no key) |
 
-Weights are tunable in `backend/app/config.py` or via environment variables (`WEIGHT_RECENT_FORM`, etc.).
+Set your weights in `backend/.env` via `WEIGHT_RECENT_FORM`, `WEIGHT_HOME_AWAY`, etc. The repo's default is equal weights (0.25 each) — your actual tuning stays private.
 
 ## Tests
 
@@ -71,7 +110,11 @@ pytest backend/tests/ -v
 ```
 backend/
 ├── app/
+│   ├── main.py                # FastAPI entry point
 │   ├── config.py              # settings and factor weights
+│   ├── api/
+│   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
+│   │   └── refresh.py         # POST /api/v1/refresh
 │   ├── data/loader.py         # nfl_data_py wrappers with CSV caching
 │   └── prediction/
 │       ├── engine.py          # orchestrates factors → PredictionResult
@@ -84,6 +127,5 @@ data/                          # CSV cache (gitignored, written on first run)
 
 ## Roadmap
 
-- FastAPI REST layer (`/api/v1/predictions/{week}`)
 - React frontend — weekly dashboard, game drill-down, season accuracy tracker
 - Season-long accuracy tracking (predictions vs. actual results)

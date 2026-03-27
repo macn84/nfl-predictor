@@ -16,3 +16,5 @@ data/*.parquet
 .pytest_cache/
 .ruff_cache/
 frontend/.vite/
+# Secrets
+backend/.env

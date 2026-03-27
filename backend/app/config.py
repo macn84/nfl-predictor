@@ -15,16 +15,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Factor weights — must sum to 1.0 after normalization (engine normalizes automatically)
-    weight_recent_form: float = 0.35
+    # Factor weights — set your actual values in backend/.env (gitignored).
+    # Engine normalises whatever values you provide so they don't need to sum to 1.0.
+    # Defaults here are equal weights so the app runs without a .env file.
+    weight_recent_form: float = 0.25
     weight_home_away: float = 0.25
-    weight_head_to_head: float = 0.20
-    weight_betting_lines: float = 0.20
+    weight_head_to_head: float = 0.25
+    weight_betting_lines: float = 0.25
 
-    # Factor tuning
+    # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
-    recent_form_decay: float = 0.8   # geometric decay per game back in time
-    h2h_games: int = 10              # max head-to-head meetings to look back
+    recent_form_decay: float = 0.5   # geometric decay per game back in time
+    h2h_games: int = 5               # max head-to-head meetings to look back
 
     # Data cache
     cache_dir: str = os.path.join(os.path.dirname(__file__), "..", "..", "data")
