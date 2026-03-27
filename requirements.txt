@@ -1,0 +1,22 @@
+# NFL Analytics Project
+# Install with: pip install --only-binary=:all: -r requirements.txt
+
+# Core data
+nfl_data_py
+numpy
+pandas>=2.0
+appdirs
+requests
+tqdm
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Machine learning
+scikit-learn
+
+# Jupyter (optional but useful even in VS Code)
+jupyter
+ipykernel
