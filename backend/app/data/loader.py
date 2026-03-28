@@ -1,5 +1,5 @@
 """
-loader.py - Data loading and CSV caching for nfl_data_py datasets.
+loader.py - Data loading and CSV caching for nflreadpy datasets.
 
 Each loader checks for a cached CSV before hitting nflverse. Pass
 force_refresh=True to re-download regardless of cache state.
@@ -7,7 +7,7 @@ force_refresh=True to re-download regardless of cache state.
 
 import os
 import pandas as pd
-import nfl_data_py as nfl
+import nflreadpy as nfl
 
 from app.config import settings
 
@@ -34,7 +34,7 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
         return pd.read_csv(path, low_memory=False)
-    df = nfl.import_schedules(seasons)
+    df = nfl.load_schedules(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
 
@@ -53,7 +53,7 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
         return pd.read_csv(path, low_memory=False)
-    df = nfl.import_weekly_data(seasons)
+    df = nfl.load_player_stats(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
 
@@ -72,6 +72,6 @@ def load_rosters(seasons: list[int], force_refresh: bool = False) -> pd.DataFram
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
         return pd.read_csv(path, low_memory=False)
-    df = nfl.import_rosters(seasons)
+    df = nfl.load_rosters(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df

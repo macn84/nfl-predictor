@@ -12,7 +12,7 @@ A personal NFL game prediction tool that generates weekly pick confidence scores
 
 - **Backend:** Python 3.x, FastAPI, SQLite
 - **Frontend:** React (TypeScript, strict mode), Vite
-- **Data Sources:** `nfl_data_py` (primary — team stats, schedules, play-by-play via nflverse), The Odds API (betting lines)
+- **Data Sources:** `nflreadpy` (primary — team stats, schedules, play-by-play via nflverse), The Odds API (betting lines)
 - **Testing:** pytest (backend), Vitest (frontend)
 
 ### High-Level Structure
@@ -25,7 +25,7 @@ nfl-predictor/
 │   │   ├── api/                  # Route handlers
 │   │   ├── models/               # Pydantic models & DB schemas
 │   │   ├── prediction/           # Prediction engine & factor calculations
-│   │   ├── data/                 # Data fetching & caching (nfl_data_py + Odds API)
+│   │   ├── data/                 # Data fetching & caching (nflreadpy + Odds API)
 │   │   ├── db/                   # SQLite connection & migrations
 │   │   └── config.py             # Settings loaded from .env
 │   ├── tests/
@@ -88,14 +88,15 @@ Each factor produces a normalized score. Weights are configurable and should be 
 
 ## Data Sources & Authentication
 
-### nfl_data_py (Primary — Team Stats, Schedules, Play-by-Play)
+### nflreadpy (Primary — Team Stats, Schedules, Play-by-Play)
 
 - **Auth required:** None. Open-source Python package, no account or API key needed.
-- **Install:** `pip install nfl_data_py`
-- **How it works:** Pulls pre-processed data from nflverse GitHub repositories (parquet files). No rate limits, no registration.
+- **Install:** `pip install nflreadpy`
+- **How it works:** Pulls pre-processed data from nflverse GitHub repositories (parquet files). No rate limits, no registration. Python port of the R package nflreadr.
 - **Data available:** Play-by-play, team stats, schedules, rosters, weekly player stats, contracts, draft picks, combine results
 - **Freshness:** Updated weekly during the NFL season, typically within 48 hours of games completing
-- **Caching:** Has built-in local caching via `nfl.cache_pbp()` — use this to avoid re-downloading large play-by-play datasets
+- **Returns:** Polars DataFrames — call `.to_pandas()` when pandas is needed downstream
+- **Caching:** Built-in memory/filesystem caching. Use `nfl.clear_cache()` to reset.
 
 ### The Odds API (Betting Lines — Sanity Check Factor)
 
@@ -129,7 +130,7 @@ ODDS_API_KEY=
 
 ## Data Flow
 
-1. **Fetch** — Pull current season data via `nfl_data_py` (schedules, team stats, game results) and betting lines via The Odds API
+1. **Fetch** — Pull current season data via `nflreadpy` (schedules, team stats, game results) and betting lines via The Odds API
 2. **Cache** — Store fetched data in SQLite to avoid redundant API calls during the week
 3. **Calculate** — Run prediction engine against upcoming week's matchups
 4. **Serve** — FastAPI exposes predictions, factor breakdowns, and accuracy data as JSON endpoints

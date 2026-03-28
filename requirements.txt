@@ -2,7 +2,7 @@
 # Install with: pip install --only-binary=:all: -r requirements.txt
 
 # Core data
-nfl_data_py
+nflreadpy
 numpy
 pandas>=2.0
 appdirs

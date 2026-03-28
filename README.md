@@ -115,7 +115,7 @@ backend/
 │   ├── api/
 │   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
 │   │   └── refresh.py         # POST /api/v1/refresh
-│   ├── data/loader.py         # nfl_data_py wrappers with CSV caching
+│   ├── data/loader.py         # nflreadpy wrappers with CSV caching
 │   └── prediction/
 │       ├── engine.py          # orchestrates factors → PredictionResult
 │       ├── models.py          # Pydantic types (FactorResult, PredictionResult)

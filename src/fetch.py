@@ -4,7 +4,7 @@ fetch.py - Data loading and caching functions for NFL analytics
 
 import os
 import pandas as pd
-import nfl_data_py as nfl
+import nflreadpy as nfl
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -22,7 +22,7 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
         print(f"Loading cached schedules from {path}")
         return pd.read_csv(path)
     print(f"Fetching schedules for seasons: {seasons}")
-    df = nfl.import_schedules(seasons)
+    df = nfl.load_schedules(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
 
@@ -35,7 +35,7 @@ def load_pbp(seasons: list[int], force_refresh: bool = False) -> pd.DataFrame:
         print(f"Loading cached PBP data from {path}")
         return pd.read_csv(path)
     print(f"Fetching play-by-play for seasons: {seasons}")
-    df = nfl.import_pbp_data(seasons)
+    df = nfl.load_pbp(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
 
@@ -48,7 +48,7 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
         print(f"Loading cached weekly stats from {path}")
         return pd.read_csv(path)
     print(f"Fetching weekly stats for seasons: {seasons}")
-    df = nfl.import_weekly_data(seasons)
+    df = nfl.load_player_stats(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
 
@@ -61,6 +61,6 @@ def load_rosters(seasons: list[int], force_refresh: bool = False) -> pd.DataFram
         print(f"Loading cached rosters from {path}")
         return pd.read_csv(path)
     print(f"Fetching rosters for seasons: {seasons}")
-    df = nfl.import_rosters(seasons)
+    df = nfl.load_rosters(seasons).to_pandas()
     df.to_csv(path, index=False)
     return df
