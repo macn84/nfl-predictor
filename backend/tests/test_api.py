@@ -161,6 +161,81 @@ class TestGetGamePrediction:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# /api/v1/accuracy
+# ---------------------------------------------------------------------------
+
+
+class TestGetAccuracy:
+    def test_returns_accuracy_for_completed_games(self, schedules):
+        with (
+            patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/accuracy", params={"season": 2024})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["season"] == 2024
+        assert data["total"] == 8  # fixture has 8 completed 2024 games
+        assert 0.0 <= data["accuracy"] <= 100.0
+
+    def test_response_shape(self, schedules):
+        with (
+            patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/accuracy", params={"season": 2024})
+        data = resp.json()
+        assert "correct" in data
+        assert "total" in data
+        assert "by_week" in data
+        assert "by_tier" in data
+
+    def test_by_week_entries(self, schedules):
+        with (
+            patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/accuracy", params={"season": 2024})
+        by_week = resp.json()["by_week"]
+        assert len(by_week) > 0
+        for entry in by_week:
+            assert "week" in entry
+            assert "correct" in entry
+            assert "total" in entry
+            assert 0.0 <= entry["accuracy"] <= 100.0
+
+    def test_by_tier_entries(self, schedules):
+        with (
+            patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/accuracy", params={"season": 2024})
+        by_tier = resp.json()["by_tier"]
+        valid_tiers = {"50-60", "60-70", "70-80", "80+"}
+        for entry in by_tier:
+            assert entry["tier"] in valid_tiers
+            assert entry["total"] > 0
+
+    def test_correct_lte_total(self, schedules):
+        with (
+            patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/accuracy", params={"season": 2024})
+        data = resp.json()
+        assert data["correct"] <= data["total"]
+
+    def test_404_for_unknown_season(self, schedules):
+        with patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)):
+            resp = client.get("/api/v1/accuracy", params={"season": 1900})
+        assert resp.status_code == 404
+
+    def test_missing_season_returns_422(self):
+        resp = client.get("/api/v1/accuracy")
+        assert resp.status_code == 422
+
+
 class TestRefresh:
     def test_successful_refresh(self, schedules):
         with (

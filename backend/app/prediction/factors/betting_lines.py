@@ -9,6 +9,7 @@ Score convention: positive → home team is favoured by the spread.
 """
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -22,6 +23,10 @@ _ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 _SPORT_KEY = "americanfootball_nfl"
 # Maximum spread in absolute value used to clamp the normalisation
 _MAX_SPREAD = 14.0
+# Cache odds data for 6 hours to avoid burning free-tier quota
+_CACHE_TTL_SECONDS = 6 * 3600
+_odds_cache: list[dict[str, Any]] | None = None
+_odds_cache_ts: float = 0.0
 
 
 def _spread_to_score(home_spread: float) -> float:
@@ -68,6 +73,37 @@ def _find_spread(odds_data: list[dict[str, Any]], home_team: str, away_team: str
     return None
 
 
+def _fetch_odds() -> list[dict[str, Any]] | None:
+    """Fetch odds data from the API, returning a cached result if fresh.
+
+    Returns:
+        List of game objects from the Odds API, or None on failure.
+    """
+    global _odds_cache, _odds_cache_ts
+    if _odds_cache is not None and (time.time() - _odds_cache_ts) < _CACHE_TTL_SECONDS:
+        return _odds_cache
+    try:
+        resp = requests.get(
+            f"{_ODDS_API_BASE}/sports/{_SPORT_KEY}/odds",
+            params={
+                "apiKey": settings.odds_api_key,
+                "regions": "us",
+                "markets": "spreads",
+                "oddsFormat": "american",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        _odds_cache = resp.json()
+        _odds_cache_ts = time.time()
+        return _odds_cache
+    except Exception as exc:
+        # Redact API key from logged URL
+        msg = str(exc).replace(settings.odds_api_key or "", "***")
+        logger.warning("Betting lines fetch failed: %s", msg)
+        return None
+
+
 def calculate(home_team: str, away_team: str) -> FactorResult:
     """Calculate the betting lines factor for a matchup.
 
@@ -94,27 +130,14 @@ def calculate(home_team: str, away_team: str) -> FactorResult:
             supporting_data={"skipped": True, "reason": "no API key configured"},
         )
 
-    try:
-        resp = requests.get(
-            f"{_ODDS_API_BASE}/sports/{_SPORT_KEY}/odds",
-            params={
-                "apiKey": settings.odds_api_key,
-                "regions": "us",
-                "markets": "spreads",
-                "oddsFormat": "american",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        odds_data = resp.json()
-    except Exception as exc:
-        logger.warning("Betting lines fetch failed: %s", exc)
+    odds_data = _fetch_odds()
+    if odds_data is None:
         return FactorResult(
             name="betting_lines",
             score=0.0,
             weight=0.0,
             contribution=0.0,
-            supporting_data={"skipped": True, "reason": str(exc)},
+            supporting_data={"skipped": True, "reason": "odds fetch failed"},
         )
 
     spread = _find_spread(odds_data, home_team, away_team)

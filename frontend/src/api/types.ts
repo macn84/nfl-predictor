@@ -39,3 +39,26 @@ export interface RefreshResponse {
   season: number
   games_cached: number
 }
+
+export interface WeekAccuracy {
+  week: number
+  correct: number
+  total: number
+  accuracy: number // 0..100
+}
+
+export interface TierAccuracy {
+  tier: string // "50-60" | "60-70" | "70-80" | "80+"
+  correct: number
+  total: number
+  accuracy: number // 0..100
+}
+
+export interface AccuracyResponse {
+  season: number
+  correct: number
+  total: number
+  accuracy: number // 0..100
+  by_week: WeekAccuracy[]
+  by_tier: TierAccuracy[]
+}

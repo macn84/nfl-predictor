@@ -1,11 +1,14 @@
-nfl_data_py
+nflreadpy
 pandas>=2.0
 pydantic>=2.0
 pydantic-settings>=2.0
 python-dotenv
 requests
+fastapi>=0.100
+uvicorn[standard]
 
 [dev]
 pytest>=8.0
 pytest-cov
 ruff
+httpx

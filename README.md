@@ -5,16 +5,11 @@ Rules-based NFL game prediction engine that scores each matchup across multiple 
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e "backend/.[dev]"
-```
-
-Copy the env template and fill in your values:
-
-```bash
 cp backend/.env.example backend/.env
+make install
 ```
+
+`make install` creates `backend/.venv` and installs all Python and Node dependencies.
 
 `backend/.env` is gitignored — it's where your private configuration lives:
 
@@ -26,14 +21,15 @@ cp backend/.env.example backend/.env
 
 The repo ships with neutral equal-weight defaults so the app runs out of the box. Set your own values in `.env` to apply your tuning.
 
-## Running the API
+## Running
 
 ```bash
-source .venv/bin/activate
-uvicorn app.main:app --reload --app-dir backend
+make dev       # both servers in parallel
+make backend   # FastAPI only  → http://localhost:8000
+make frontend  # Vite only     → http://localhost:5173
 ```
 
-The API is then available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+Or from VS Code: **Cmd/Ctrl+Shift+B** (default build task) starts both servers, each in its own terminal panel. Individual tasks are available via **Terminal → Run Task**.
 
 ## API Endpoints
 
@@ -42,6 +38,7 @@ The API is then available at `http://localhost:8000`. Interactive docs at `http:
 | `GET` | `/api/v1/weeks?season=` | List weeks with game counts |
 | `GET` | `/api/v1/predictions/{week}?season=` | All predictions for a week |
 | `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game detail |
+| `GET` | `/api/v1/accuracy?season=` | Season accuracy vs. actual results |
 | `POST` | `/api/v1/refresh` | Re-download and cache data for a season |
 
 `game_id` format is `{home}-{away}` in lowercase, e.g. `kc-buf`.
@@ -51,6 +48,9 @@ The API is then available at `http://localhost:8000`. Interactive docs at `http:
 ```bash
 # Fetch all week 1 predictions for the 2024 season
 curl "http://localhost:8000/api/v1/predictions/1?season=2024"
+
+# Check season accuracy
+curl "http://localhost:8000/api/v1/accuracy?season=2024"
 
 # Refresh cached data before game day
 curl -X POST http://localhost:8000/api/v1/refresh -H "Content-Type: application/json" -d '{"season": 2024}'
@@ -102,7 +102,10 @@ Weights and calibration parameters are set in `backend/.env` (gitignored) — se
 ## Tests
 
 ```bash
-pytest backend/tests/ -v
+make test             # all tests
+make test-backend     # pytest only
+make test-frontend    # Vitest only
+make lint             # ruff + eslint
 ```
 
 ## Project structure
@@ -114,6 +117,7 @@ backend/
 │   ├── config.py              # settings and factor weights
 │   ├── api/
 │   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
+│   │   ├── accuracy.py        # GET /api/v1/accuracy
 │   │   └── refresh.py         # POST /api/v1/refresh
 │   ├── data/loader.py         # nflreadpy wrappers with CSV caching
 │   └── prediction/
@@ -122,10 +126,15 @@ backend/
 │       └── factors/           # one module per factor
 ├── tests/
 └── pyproject.toml
+frontend/
+├── src/
+│   ├── pages/
+│   │   ├── WeeklyDashboard/   # game cards for a selected week
+│   │   ├── GameDetail/        # factor breakdown for a single game
+│   │   └── SeasonTracker/     # accuracy vs. actual results
+│   ├── components/            # ConfidenceBadge, FactorBar, GameCard, etc.
+│   ├── hooks/                 # usePredictions, useWeeks, useAccuracy, …
+│   └── api/                   # typed fetch wrappers + response types
+└── package.json
 data/                          # CSV cache (gitignored, written on first run)
 ```
-
-## Roadmap
-
-- React frontend — weekly dashboard, game drill-down, season accuracy tracker
-- Season-long accuracy tracking (predictions vs. actual results)

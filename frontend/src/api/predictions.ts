@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { GamePrediction, RefreshResponse, WeekPredictionsResponse, WeeksResponse } from './types'
+import type { AccuracyResponse, GamePrediction, RefreshResponse, WeekPredictionsResponse, WeeksResponse } from './types'
 
 export async function fetchWeeks(season: number): Promise<WeeksResponse> {
   return apiFetch<WeeksResponse>(`/api/v1/weeks?season=${season}`)
@@ -26,4 +26,8 @@ export async function triggerRefresh(season: number): Promise<RefreshResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ season }),
   })
+}
+
+export async function fetchAccuracy(season: number): Promise<AccuracyResponse> {
+  return apiFetch<AccuracyResponse>(`/api/v1/accuracy?season=${season}`)
 }
