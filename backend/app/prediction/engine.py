@@ -17,9 +17,7 @@ from app.prediction.factors import (
     home_away,
     recent_form,
 )
-from app.prediction.factors import (
-    weather as weather_factor,
-)
+from app.prediction.factors import weather_factor
 from app.prediction.models import FactorResult, PredictionResult
 
 
