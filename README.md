@@ -17,7 +17,9 @@ make install
 |----------|---------|
 | `ODDS_API_KEY` | Free key from [the-odds-api.com](https://the-odds-api.com/) — betting lines factor is skipped if absent |
 | `WEIGHT_RECENT_FORM` / `_HOME_AWAY` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Your tuned factor weights (the engine normalises them, so relative values are all that matter) |
+| `WEIGHT_COACHING_MATCHUP` / `WEIGHT_WEATHER` | Weights for the coaching and weather factors (both default to `0.0` — disabled until you set a value) |
 | `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `H2H_GAMES` | Factor calibration parameters |
+| `COACHING_MIN_GAMES` | Minimum games in a coaching record before that sub-signal is used (default `3`) |
 
 The repo ships with neutral equal-weight defaults so the app runs out of the box. Set your own values in `.env` to apply your tuning.
 
@@ -78,10 +80,12 @@ Example output:
   "predicted_winner": "KC",
   "confidence": 71.4,
   "factors": [
-    { "name": "recent_form",   "score": 40.0, "weight": "...", "contribution": "..." },
-    { "name": "home_away",     "score": 33.3, "weight": "...", "contribution": "..." },
-    { "name": "head_to_head",  "score": 33.3, "weight": "...", "contribution": "..." },
-    { "name": "betting_lines", "score":  0.0, "weight": 0.0,  "contribution": 0.0   }
+    { "name": "recent_form",        "score": 40.0, "weight": "...", "contribution": "..." },
+    { "name": "home_away",          "score": 33.3, "weight": "...", "contribution": "..." },
+    { "name": "head_to_head",       "score": 33.3, "weight": "...", "contribution": "..." },
+    { "name": "betting_lines",      "score":  0.0, "weight": 0.0,  "contribution": 0.0   },
+    { "name": "coaching_matchup",   "score": 20.0, "weight": "...", "contribution": "..." },
+    { "name": "weather",            "score": 10.0, "weight": "...", "contribution": "..." }
   ]
 }
 ```
@@ -96,6 +100,8 @@ Each factor produces a score from **-100 to +100** (positive = home team advanta
 | Home/away splits | Season win % at home vs. on the road |
 | Head-to-head | Historical meetings across seasons |
 | Betting lines | The Odds API point spread (skipped if no key) |
+| Coaching matchup | Coach vs. opponent record + direct coach head-to-head (requires `data/nfl_coaches_full_dataset.csv`; skipped if weight is 0 or data is absent) |
+| Weather | Game-time conditions via Open-Meteo (free, no key); dome games score 0; adverse outdoor weather applies a small home advantage. Requires `game_date` to be passed to the engine. |
 
 Weights and calibration parameters are set in `backend/.env` (gitignored) — see `.env.example` for the full list of variables. The repo ships with equal weights as a neutral default.
 
@@ -119,7 +125,10 @@ backend/
 │   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
 │   │   ├── accuracy.py        # GET /api/v1/accuracy
 │   │   └── refresh.py         # POST /api/v1/refresh
-│   ├── data/loader.py         # nflreadpy wrappers with CSV caching
+│   ├── data/
+│   │   ├── loader.py          # nflreadpy wrappers with CSV caching
+│   │   ├── coaches.py         # head coach lookup from static CSV
+│   │   └── weather.py         # game-time weather via Open-Meteo
 │   └── prediction/
 │       ├── engine.py          # orchestrates factors → PredictionResult
 │       ├── models.py          # Pydantic types (FactorResult, PredictionResult)
@@ -136,5 +145,7 @@ frontend/
 │   ├── hooks/                 # usePredictions, useWeeks, useAccuracy, …
 │   └── api/                   # typed fetch wrappers + response types
 └── package.json
-data/                          # CSV cache (gitignored, written on first run)
+data/                          # CSV cache + static datasets (gitignored)
+├── nfl_coaches_full_dataset.csv   # required for coaching_matchup factor
+└── nfl_stadiums.csv               # required for weather factor
 ```

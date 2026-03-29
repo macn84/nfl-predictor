@@ -2,11 +2,64 @@
 test_factors.py - Unit tests for individual prediction factors.
 """
 
-import pytest
-import pandas as pd
+from datetime import date
 
-from app.prediction.factors import recent_form, home_away, head_to_head, betting_lines
+import pandas as pd
+import pytest
+
+from app.data.coaches import CoachRecord
+from app.data.weather import GameWeather, WeatherCondition
+from app.prediction.factors import (
+    betting_lines,
+    coaching_matchup,
+    head_to_head,
+    home_away,
+    recent_form,
+)
+from app.prediction.factors import weather as weather_factor
 from app.prediction.models import FactorResult
+
+# ---------------------------------------------------------------------------
+# Shared helpers for coaching + weather tests
+# ---------------------------------------------------------------------------
+
+_ANDY_REID = CoachRecord(
+    guid="t1", name="Andy Reid", team="KC", team_full="Kansas City Chiefs",
+    season=2024, is_interim=False, start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
+)
+_SEAN_MCDERMOTT = CoachRecord(
+    guid="t2", name="Sean McDermott", team="BUF", team_full="Buffalo Bills",
+    season=2024, is_interim=False, start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
+)
+
+_STRONG_RECORD = {"wins": 5, "losses": 2, "games": 7, "win_pct": 5 / 7}
+_WEAK_RECORD   = {"wins": 2, "losses": 5, "games": 7, "win_pct": 2 / 7}
+_SPARSE_RECORD = {"wins": 1, "losses": 1, "games": 2, "win_pct": 0.5}
+
+_H2H_GAMES_HOME_WINS = [
+    {"coach_a_won": True},
+    {"coach_a_won": True},
+    {"coach_a_won": False},
+    {"coach_a_won": True},
+]
+
+
+def _make_game_weather(
+    condition: WeatherCondition = WeatherCondition.SUNNY,
+    source: str = "archive",
+    temperature_f: float | None = 65.0,
+    wind_speed_kph: float | None = 12.0,
+    is_dome: bool = False,
+) -> GameWeather:
+    return GameWeather(
+        condition=condition,
+        temperature_c=(temperature_f - 32) * 5 / 9 if temperature_f is not None else None,
+        temperature_f=temperature_f,
+        wind_speed_kph=wind_speed_kph,
+        is_dome=is_dome,
+        stadium="Arrowhead Stadium",
+        source=source,
+    )
 
 
 class TestRecentForm:
@@ -29,7 +82,8 @@ class TestRecentForm:
         assert result.score > 0, "KC's better recent form should produce a positive score"
 
     def test_no_games_returns_neutral(self):
-        empty = pd.DataFrame(columns=["season", "week", "gameday", "home_team", "away_team", "result"])
+        cols = ["season", "week", "gameday", "home_team", "away_team", "result"]
+        empty = pd.DataFrame(columns=cols)
         result = recent_form.calculate(empty, "KC", "BUF")
         assert result.score == 0.0
 
@@ -122,3 +176,155 @@ class TestBettingLines:
         from app.prediction.factors.betting_lines import _spread_to_score
         assert _spread_to_score(-100.0) == 100.0
         assert _spread_to_score(100.0) == -100.0
+
+
+class TestCoachingMatchup:
+    def _patch_coaches(self, monkeypatch, home_rec=None, away_rec=None, h2h=None):
+        """Convenience: patch all three coaches.py helpers at once."""
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.get_coach_by_season",
+            lambda team, season: _ANDY_REID if team == "KC" else _SEAN_MCDERMOTT,
+        )
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.coach_vs_team_record",
+            lambda name, opp, recs: home_rec if name == _ANDY_REID.name else away_rec,
+        )
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.coaches_met",
+            lambda a, b, recs: h2h if h2h is not None else _H2H_GAMES_HOME_WINS,
+        )
+
+    def test_returns_factor_result(self, schedules, monkeypatch):
+        self._patch_coaches(monkeypatch, _STRONG_RECORD, _WEAK_RECORD)
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        assert isinstance(result, FactorResult)
+        assert result.name == "coaching_matchup"
+
+    def test_score_in_range(self, schedules, monkeypatch):
+        self._patch_coaches(monkeypatch, _STRONG_RECORD, _WEAK_RECORD)
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        assert -100.0 <= result.score <= 100.0
+
+    def test_contribution_equals_score_times_weight(self, schedules, monkeypatch):
+        self._patch_coaches(monkeypatch, _STRONG_RECORD, _WEAK_RECORD)
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.settings.weight_coaching_matchup", 0.15
+        )
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        assert abs(result.contribution - result.score * result.weight) < 1e-9
+
+    def test_skips_when_home_coach_not_found(self, schedules, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.get_coach_by_season",
+            lambda team, season: None,
+        )
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_skips_when_csv_missing(self, schedules, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.get_coach_by_season",
+            lambda team, season: (_ for _ in ()).throw(FileNotFoundError("no csv")),
+        )
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_sub_signal_below_threshold_uses_neutral(self, schedules, monkeypatch):
+        self._patch_coaches(
+            monkeypatch, _SPARSE_RECORD, _SPARSE_RECORD, h2h=[{"coach_a_won": True}]
+        )
+        monkeypatch.setattr(
+            "app.prediction.factors.coaching_matchup.settings.coaching_min_games", 10
+        )
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        # All sub-signals below threshold → each is 0.0 → score == 0.0
+        assert result.score == 0.0
+
+    def test_supporting_data_fields_present(self, schedules, monkeypatch):
+        self._patch_coaches(monkeypatch, _STRONG_RECORD, _WEAK_RECORD)
+        result = coaching_matchup.calculate(schedules, "KC", "BUF", 2024)
+        sd = result.supporting_data
+        assert "home_coach" in sd
+        assert "away_coach" in sd
+        assert "home_coach_vs_opp" in sd
+        assert "away_coach_vs_opp" in sd
+        assert "coach_h2h" in sd
+
+
+class TestWeather:
+    def test_skips_when_game_date_none(self):
+        result = weather_factor.calculate("KC", None)
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_dome_returns_zero_score(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.DOME, source="dome",
+                is_dome=True, temperature_f=None, wind_speed_kph=None,
+            ),
+        )
+        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        assert result.score == 0.0
+        assert result.weight == pytest.approx(0.10)
+
+    def test_snow_cold_returns_positive_score(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.SNOW, source="archive", temperature_f=28.0,
+            ),
+        )
+        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        result = weather_factor.calculate("KC", date(2024, 1, 14))
+        assert result.score == pytest.approx(20.0)
+
+    def test_api_error_skips_factor(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.UNKNOWN, source="error"
+            ),
+        )
+        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_score_in_range(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.RAIN, source="forecast"
+            ),
+        )
+        result = weather_factor.calculate("KC", date(2025, 1, 5))
+        assert -100.0 <= result.score <= 100.0
+
+    def test_contribution_equals_score_times_weight(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.RAIN, source="archive"
+            ),
+        )
+        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        assert abs(result.contribution - result.score * result.weight) < 1e-9
+
+    def test_supporting_data_fields_present(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.weather.get_game_weather_by_date",
+            lambda team, d, **kw: _make_game_weather(
+                condition=WeatherCondition.SUNNY, source="archive"
+            ),
+        )
+        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        sd = result.supporting_data
+        expected_keys = ("weather_bucket", "condition", "temperature_f", "wind_speed_kph",
+                         "stadium", "source", "is_dome")
+        for key in expected_keys:
+            assert key in sd

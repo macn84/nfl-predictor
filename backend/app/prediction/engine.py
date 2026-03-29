@@ -5,10 +5,21 @@ Runs all factor calculations for a matchup and combines them into a
 single confidence score with a factor breakdown.
 """
 
+from datetime import date
+
 import pandas as pd
 
 from app.data.loader import load_schedules
-from app.prediction.factors import recent_form, home_away, head_to_head, betting_lines
+from app.prediction.factors import (
+    betting_lines,
+    coaching_matchup,
+    head_to_head,
+    home_away,
+    recent_form,
+)
+from app.prediction.factors import (
+    weather as weather_factor,
+)
 from app.prediction.models import FactorResult, PredictionResult
 
 
@@ -65,6 +76,7 @@ def predict(
     away_team: str,
     season: int,
     schedules: pd.DataFrame | None = None,
+    game_date: date | None = None,
 ) -> PredictionResult:
     """Generate a prediction for a single NFL matchup.
 
@@ -74,6 +86,8 @@ def predict(
         season: NFL season year (e.g. 2024).
         schedules: Pre-loaded schedules DataFrame. If None, loads automatically.
                    Pass this when calling predict() in a loop to avoid re-loading.
+        game_date: Kickoff date. Required for weather scoring; omitting it
+                   silently skips the weather factor.
 
     Returns:
         PredictionResult with predicted winner, confidence, and factor breakdown.
@@ -88,6 +102,8 @@ def predict(
         home_away.calculate(schedules, home_team, away_team, season),
         head_to_head.calculate(schedules, home_team, away_team),
         betting_lines.calculate(home_team, away_team),
+        coaching_matchup.calculate(schedules, home_team, away_team, season),
+        weather_factor.calculate(home_team, game_date),
     ]
 
     normalized = _normalize_weights(factors)

@@ -23,6 +23,8 @@ Personal NFL game prediction tool. Rules-based engine, weighted factors, confide
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/refresh.py` | `POST /api/v1/refresh` — triggers data fetch |
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
+| `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2021–2026 incl. interim stints. |
+| `data/weather.py` | Game-time weather via Open-Meteo (no key, free). `get_game_weather(home_team, datetime)` auto-routes to archive API (past) or forecast API (≤16 days ahead). Dome games short-circuit — no API call. Requires `data/nfl_stadiums.csv`. |
 | `prediction/engine.py` | Orchestrates factors → `PredictionResult` |
 | `prediction/models.py` | Pydantic types: `FactorResult`, `PredictionResult` |
 | `prediction/factors/recent_form.py` | Last N games, recency-weighted geometric decay |
@@ -86,6 +88,13 @@ No auth. Pulls from nflverse GitHub (parquet). Returns Polars DataFrames — cal
 ### The Odds API
 Requires `ODDS_API_KEY` in `backend/.env`. Free tier: 500 req/month. Sport key: `americanfootball_nfl`. Markets: `h2h`, `spreads`. App skips this factor gracefully if key is missing.
 
+### Open-Meteo (weather)
+No auth, no key. Archive endpoint for past games; forecast endpoint for games ≤16 days ahead. Dome stadiums are resolved locally with no API call. Requires `data/nfl_stadiums.csv` with columns: Team Abbreviation, Team Full Name, Stadium Name, City, State, Latitude, Longitude, Is Dome, Surface Type.
+
+### Static CSVs (`data/`)
+- `nfl_coaches_full_dataset.csv` — head coaches 2021–2026, columns: GUID, Head Coach Full Name, Team Abbreviation, NFL Team Full Name, Season, Is Interim, Start Date, End Date
+- `nfl_stadiums.csv` — per-team stadium metadata (see above)
+
 ## Code Conventions
 
 ### Python
@@ -112,3 +121,6 @@ Requires `ODDS_API_KEY` in `backend/.env`. Free tier: 500 req/month. Sport key: 
 - Factor weights are only tunable via `backend/.env`, no UI
 - No mobile-responsive design
 - LLM narrative generation (out of scope for v1)
+- `data/coaches.py` and `data/weather.py` are data-layer modules — **not yet wired into any prediction factor**. Two new factors remain to be built:
+  - `prediction/factors/coaching_matchup.py` — coach vs. coach head-to-head record + coach vs. opponent record, using `coaches.py`
+  - `prediction/factors/weather.py` — outdoor/cold/snow penalty using `weather.py` + `classify_weather_bucket()`

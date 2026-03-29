@@ -3,6 +3,7 @@ config.py - Application settings loaded from environment / .env file.
 """
 
 import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,11 +23,14 @@ class Settings(BaseSettings):
     weight_home_away: float = 0.25
     weight_head_to_head: float = 0.25
     weight_betting_lines: float = 0.25
+    weight_coaching_matchup: float = 0.0  # disabled by default; set in backend/.env
+    weight_weather: float = 0.0           # disabled by default; set in backend/.env
 
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time
     h2h_games: int = 5               # max head-to-head meetings to look back
+    coaching_min_games: int = 3      # sub-signals below this threshold use 0.0 (neutral)
 
     # Data cache
     cache_dir: str = os.path.join(os.path.dirname(__file__), "..", "..", "data")
@@ -42,6 +46,8 @@ class Settings(BaseSettings):
             "home_away": self.weight_home_away,
             "head_to_head": self.weight_head_to_head,
             "betting_lines": self.weight_betting_lines,
+            "coaching_matchup": self.weight_coaching_matchup,
+            "weather": self.weight_weather,
         }
 
 
