@@ -7,7 +7,7 @@ GET /api/v1/predictions/{week}/{game_id}?season= — single game detail
 """
 
 import math
-from typing import Any
+from datetime import date
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
@@ -87,9 +87,17 @@ def _predict_week_games(
         home = str(row["home_team"])
         away = str(row["away_team"])
         gameday_raw = row.get("gameday", "")
-        gameday = "" if (gameday_raw is None or (isinstance(gameday_raw, float) and math.isnan(gameday_raw))) else str(gameday_raw)
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
 
-        pred = predict(home, away, season, schedules=schedules)
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+
+        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
         results.append(
             GamePrediction(
                 game_id=_game_id(home, away),
