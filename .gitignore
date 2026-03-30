@@ -25,3 +25,6 @@ build/
 
 #ideas not for public
 todo.txt
+
+# Private validation harness
+validation/
