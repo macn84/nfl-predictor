@@ -98,7 +98,7 @@ class TestGetWeekPredictions:
         assert "predicted_winner" in game
         assert "confidence" in game
         assert "factors" in game
-        assert len(game["factors"]) == 4
+        assert len(game["factors"]) == 6
 
     def test_confidence_in_range(self, schedules):
         with (
@@ -154,6 +154,108 @@ class TestGetGamePrediction:
         factors = resp.json()["factors"]
         active_weight = sum(f["weight"] for f in factors if f["weight"] > 0)
         assert abs(active_weight - 1.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# /api/v1/covers/{week}
+# ---------------------------------------------------------------------------
+
+
+class TestGetWeekCovers:
+    def test_returns_games_for_valid_week(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1", params={"season": 2024})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["season"] == 2024
+        assert data["week"] == 1
+        assert len(data["games"]) == 1
+
+    def test_game_shape(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1", params={"season": 2024})
+        game = resp.json()["games"][0]
+        assert game["home_team"] == "KC"
+        assert game["away_team"] == "BUF"
+        assert game["game_id"] == "kc-buf"
+        assert "predicted_margin" in game
+        assert "predicted_cover" in game
+        assert "cover_confidence" in game
+        assert "spread" in game
+        assert "factors" in game
+        assert len(game["factors"]) == 6
+
+    def test_cover_confidence_in_range(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1", params={"season": 2024})
+        confidence = resp.json()["games"][0]["cover_confidence"]
+        assert 50.0 <= confidence <= 100.0
+
+    def test_404_for_empty_week(self, schedules):
+        with patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)):
+            resp = client.get("/api/v1/covers/99", params={"season": 2024})
+        assert resp.status_code == 404
+
+    def test_missing_season_returns_422(self):
+        resp = client.get("/api/v1/covers/1")
+        assert resp.status_code == 422
+
+    def test_factor_weights_sum_to_one(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1", params={"season": 2024})
+        factors = resp.json()["games"][0]["factors"]
+        active_weight = sum(f["weight"] for f in factors if f["weight"] > 0)
+        assert abs(active_weight - 1.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# /api/v1/covers/{week}/{game_id}
+# ---------------------------------------------------------------------------
+
+
+class TestGetGameCover:
+    def test_returns_matching_game(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1/kc-buf", params={"season": 2024})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["game_id"] == "kc-buf"
+        assert data["home_team"] == "KC"
+        assert data["away_team"] == "BUF"
+
+    def test_404_for_unknown_game_id(self, schedules):
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1/ne-dal", params={"season": 2024})
+        assert resp.status_code == 404
+
+    def test_predicted_cover_absent_without_spread(self, schedules):
+        # No spread CSVs in test env → spread=None → predicted_cover=None
+        with (
+            patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)),
+            patch("app.prediction.factors.betting_lines.settings.odds_api_key", ""),
+        ):
+            resp = client.get("/api/v1/covers/1/kc-buf", params={"season": 2024})
+        data = resp.json()
+        assert data["spread"] is None
+        assert data["predicted_cover"] is None
 
 
 # ---------------------------------------------------------------------------

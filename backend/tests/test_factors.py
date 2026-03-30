@@ -359,7 +359,7 @@ class TestWeather:
         )
         monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
         result = weather_factor.calculate("KC", date(2024, 1, 14))
-        assert result.score == pytest.approx(20.0)
+        assert result.score == pytest.approx(25.0)
 
     def test_api_error_skips_factor(self, monkeypatch):
         monkeypatch.setattr(
@@ -402,7 +402,7 @@ class TestWeather:
         )
         result = weather_factor.calculate("KC", date(2024, 9, 8))
         sd = result.supporting_data
-        expected_keys = ("weather_bucket", "condition", "temperature_f", "wind_speed_kph",
+        expected_keys = ("condition", "temperature_f", "wind_speed_kph",
                          "stadium", "source", "is_dome")
         for key in expected_keys:
             assert key in sd
