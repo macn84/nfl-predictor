@@ -15,6 +15,7 @@ rather than skipping the factor entirely.
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import pandas as pd
 
@@ -50,6 +51,7 @@ def calculate(
     home_team: str,
     away_team: str,
     season: int,
+    game_date: date | None = None,
 ) -> FactorResult:
     """Score the coaching matchup edge for a game.
 
@@ -58,6 +60,8 @@ def calculate(
         home_team: Home team abbreviation (e.g. 'KC').
         away_team: Away team abbreviation (e.g. 'BUF').
         season: Current NFL season year.
+        game_date: If provided, only games played strictly before this date are
+            considered. Prevents data leakage when back-testing historical games.
 
     Returns:
         FactorResult with score in [-100, +100]. Positive favours the home team.
@@ -75,6 +79,10 @@ def calculate(
         return _skip(f"no coach found for {away_team} in {season}")
 
     try:
+        if game_date is not None:
+            schedules = schedules[
+                pd.to_datetime(schedules["gameday"]) < pd.Timestamp(game_date)
+            ]
         records = schedules.to_dict("records")
         min_g = settings.coaching_min_games
 

@@ -1,24 +1,45 @@
 import json
-from datetime import date
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
-# Load the results
-with open("data/optimiser_results.json") as f:
-    data = json.load(f)
+from app.prediction.calibration import MARGIN_SLOPE, MARGIN_INTERCEPT
+from app.config import settings
 
-print("=== WINNER TOP 5 — Training vs (need validation) ===")
-for i, r in enumerate(data["top_winner"][:5], 1):
-    w = r["weights"]
-    print(f"\nRank {i}:")
-    print(f"  Weights: rf={w['recent_form']} ha={w['home_away']} h2h={w['head_to_head']} "
-          f"bl={w['betting_lines']} coach={w['coaching_matchup']} wx={w['weather']}")
-    print(f"  Train winner_wscore={r['winner_wscore']:.4f}  hc_acc={r['winner_hc_acc']:.1%}  hc_n={r['winner_hc_n']}")
-    print(f"  Train simple_acc={r['simple_acc']:.1%}")
+FACTOR_NAMES = ["recent_form", "home_away", "head_to_head",
+                "betting_lines", "coaching_matchup", "weather"]
 
-print("\n=== COVER TOP 5 ===")
-for i, r in enumerate(data["top_cover"][:5], 1):
-    w = r["weights"]
-    print(f"\nRank {i}:")
-    print(f"  Weights: rf={w['recent_form']} ha={w['home_away']} h2h={w['head_to_head']} "
-          f"bl={w['betting_lines']} coach={w['coaching_matchup']} wx={w['weather']}")
-    print(f"  Train cover_wscore={r['cover_wscore']:.4f}  winner_wscore={r['winner_wscore']:.4f}")
-    print(f"  Train simple_acc={r['simple_acc']:.1%}")
+with open("data/score_cache.json") as f:
+    cache = json.load(f)
+
+games_2022 = [g for g in cache if g["season"] == 2022 and g.get("spread") is not None][:20]
+weights = settings.cover_weights
+
+correct = wrong = 0
+for g in games_2022:
+    w = {k: 0.0 if g["factors"][k]["skipped"] else weights[k] for k in FACTOR_NAMES}
+    total = sum(w.values())
+    if total == 0:
+        continue
+    norm = {k: v/total for k,v in w.items()}
+    ws = sum(g["factors"][k]["score"] * norm[k] for k in norm)
+    pred_margin = MARGIN_SLOPE * ws + MARGIN_INTERCEPT
+    spread = g["spread"]
+    actual_margin = g["actual_margin"]
+
+    pred_cover = g["home_team"] if pred_margin > spread else g["away_team"]
+    actual_cover = g["home_team"] if actual_margin > spread else g["away_team"]
+    match = pred_cover == actual_cover
+
+    if match:
+        correct += 1
+    else:
+        wrong += 1
+
+    print(f"{g['home_team']:3s} vs {g['away_team']:3s} "
+          f"actual_margin={actual_margin:+.1f} spread={spread:+.1f} "
+          f"pred_margin={pred_margin:+.1f} "
+          f"pred_cover={pred_cover:3s} actual_cover={actual_cover:3s} "
+          f"{'✓' if match else '✗'}")
+
+print(f"\nSample: {correct}/{correct+wrong} = {correct/(correct+wrong):.1%}")
