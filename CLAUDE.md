@@ -25,12 +25,15 @@ Personal NFL game prediction tool. Rules-based engine, weighted factors, confide
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2021–2026 incl. interim stints. |
 | `data/weather.py` | Game-time weather via Open-Meteo (no key, free). `get_game_weather(home_team, datetime)` auto-routes to archive API (past) or forecast API (≤16 days ahead). Dome games short-circuit — no API call. Requires `data/nfl_stadiums.csv`. |
+| `data/spreads.py` | Historical closing-line spreads loader. Reads nflverse CSVs from `data/spreads/nfl_{season}_spreads.csv` (2021–2025). Used by `betting_lines.py` for historical accuracy testing in place of live Odds API calls. `get_spread(home, away, date)` returns home-team spread or `None`. |
 | `prediction/engine.py` | Orchestrates factors → `PredictionResult` |
 | `prediction/models.py` | Pydantic types: `FactorResult`, `PredictionResult` |
 | `prediction/factors/recent_form.py` | Last N games, recency-weighted geometric decay |
 | `prediction/factors/home_away.py` | Season win % home vs. road |
 | `prediction/factors/head_to_head.py` | Historical meeting results |
-| `prediction/factors/betting_lines.py` | The Odds API point spread (skipped if no key) |
+| `prediction/factors/betting_lines.py` | The Odds API point spread (live) or historical closing spread via `spreads.py` (past games) |
+| `prediction/factors/coaching_matchup.py` | Three sub-signals averaged: home coach vs. opponent record, away coach vs. opponent record (inverted), direct coach H2H. Defaults to `weight=0.0` — enable in `.env`. |
+| `prediction/factors/weather_factor.py` | Home familiarity edge in adverse outdoor conditions (rain/snow/cold). Dome games score 0. Score range 0–20. Defaults to `weight=0.0` — enable in `.env`. |
 
 All factors produce a score **-100 to +100** (positive = home team advantage). Engine normalises weights, maps weighted sum → **0–100 confidence**.
 
@@ -94,6 +97,7 @@ No auth, no key. Archive endpoint for past games; forecast endpoint for games �
 ### Static CSVs (`data/`)
 - `nfl_coaches_full_dataset.csv` — head coaches 2021–2026, columns: GUID, Head Coach Full Name, Team Abbreviation, NFL Team Full Name, Season, Is Interim, Start Date, End Date
 - `nfl_stadiums.csv` — per-team stadium metadata (see above)
+- `spreads/nfl_{season}_spreads.csv` — historical closing spreads for 2021–2025 seasons (nflverse format); two rows per game (one per team), keyed on `id`, `home_team`, `team`, `point`, `commence_time`
 
 ## Code Conventions
 
@@ -121,6 +125,4 @@ No auth, no key. Archive endpoint for past games; forecast endpoint for games �
 - Factor weights are only tunable via `backend/.env`, no UI
 - No mobile-responsive design
 - LLM narrative generation (out of scope for v1)
-- `data/coaches.py` and `data/weather.py` are data-layer modules — **not yet wired into any prediction factor**. Two new factors remain to be built:
-  - `prediction/factors/coaching_matchup.py` — coach vs. coach head-to-head record + coach vs. opponent record, using `coaches.py`
-  - `prediction/factors/weather.py` — outdoor/cold/snow penalty using `weather.py` + `classify_weather_bucket()`
+- `coaching_matchup` and `weather` factors are built and wired but **disabled by default** (`weight=0.0`). Enable by setting `WEIGHT_COACHING_MATCHUP` / `WEIGHT_WEATHER` in `backend/.env`.

@@ -1,29 +1,33 @@
 """
-betting_lines.py - Betting lines sanity-check factor.
+betting_lines.py - Betting lines factor.
 
-Fetches current point spreads from The Odds API and converts the
-home-team spread to a -100..+100 signal. If no API key is configured
-or the request fails, the factor is skipped (weight set to 0).
+For historical games (2021-2025): reads closing spreads from nflverse
+CSV files in data/spreads/. No API key or quota required.
+
+For current/upcoming games: fetches live spreads from The Odds API.
+Requires ODDS_API_KEY in backend/.env. Skips gracefully if absent.
 
 Score convention: positive → home team is favoured by the spread.
 """
 
+from __future__ import annotations
+
 import logging
 import time
-from typing import Any
+from datetime import date
+from typing import Any, Optional
 
 import requests
 
 from app.config import settings
+from app.data.spreads import get_spread, is_historical
 from app.prediction.models import FactorResult
 
 logger = logging.getLogger(__name__)
 
 _ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 _SPORT_KEY = "americanfootball_nfl"
-# Maximum spread in absolute value used to clamp the normalisation
 _MAX_SPREAD = 14.0
-# Cache odds data for 6 hours to avoid burning free-tier quota
 _CACHE_TTL_SECONDS = 6 * 3600
 _odds_cache: list[dict[str, Any]] | None = None
 _odds_cache_ts: float = 0.0
@@ -32,53 +36,35 @@ _odds_cache_ts: float = 0.0
 def _spread_to_score(home_spread: float) -> float:
     """Convert a home-team point spread to a -100..+100 score.
 
-    A spread of 0 maps to 0. Negative spread (home favoured) maps to positive score.
+    Negative spread = home team favoured → positive score.
     Clamped at ±_MAX_SPREAD points.
 
     Args:
-        home_spread: Point spread from the home team's perspective (negative = home favoured).
+        home_spread: Spread from home team's perspective (negative = home favoured).
 
     Returns:
         Score in -100..+100.
     """
     clamped = max(-_MAX_SPREAD, min(_MAX_SPREAD, home_spread))
-    # home is favoured when spread is negative → flip sign for our convention
     return (-clamped / _MAX_SPREAD) * 100.0
 
 
-def _find_spread(odds_data: list[dict[str, Any]], home_team: str, away_team: str) -> float | None:
-    """Extract the home-team spread from raw Odds API response.
+def _skip(reason: str) -> FactorResult:
+    return FactorResult(
+        name="betting_lines",
+        score=0.0,
+        weight=0.0,
+        contribution=0.0,
+        supporting_data={"skipped": True, "reason": reason},
+    )
 
-    Args:
-        odds_data: List of game objects returned by the API.
-        home_team: Home team abbreviation (e.g. 'KC').
-        away_team: Away team abbreviation.
 
-    Returns:
-        Home-team spread as a float, or None if not found.
-    """
-    # The Odds API uses full team names; do a partial-match search
-    for game in odds_data:
-        h = game.get("home_team", "")
-        a = game.get("away_team", "")
-        if home_team.upper() not in h.upper() and away_team.upper() not in a.upper():
-            continue
-        for bookmaker in game.get("bookmakers", []):
-            for market in bookmaker.get("markets", []):
-                if market.get("key") != "spreads":
-                    continue
-                for outcome in market.get("outcomes", []):
-                    if home_team.upper() in outcome.get("name", "").upper():
-                        return float(outcome["point"])
-    return None
-
+# ---------------------------------------------------------------------------
+# Live Odds API (current/upcoming games)
+# ---------------------------------------------------------------------------
 
 def _fetch_odds() -> list[dict[str, Any]] | None:
-    """Fetch odds data from the API, returning a cached result if fresh.
-
-    Returns:
-        List of game objects from the Odds API, or None on failure.
-    """
+    """Fetch live odds from The Odds API, with 6-hour in-memory cache."""
     global _odds_cache, _odds_cache_ts
     if _odds_cache is not None and (time.time() - _odds_cache_ts) < _CACHE_TTL_SECONDS:
         return _odds_cache
@@ -98,60 +84,101 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
         _odds_cache_ts = time.time()
         return _odds_cache
     except Exception as exc:
-        # Redact API key from logged URL
         msg = str(exc).replace(settings.odds_api_key or "", "***")
         logger.warning("Betting lines fetch failed: %s", msg)
         return None
 
 
-def calculate(home_team: str, away_team: str) -> FactorResult:
-    """Calculate the betting lines factor for a matchup.
+def _find_live_spread(
+    odds_data: list[dict[str, Any]], home_team: str, away_team: str
+) -> Optional[float]:
+    """Extract home-team spread from Odds API response.
 
-    Skips gracefully (weight=0, score=0) when:
-    - ODDS_API_KEY is not set
-    - The API request fails
-    - No matching game is found
+    The Odds API uses full team names (e.g. 'Kansas City Chiefs').
+    Matches by checking if the team abbreviation appears in the full name.
 
     Args:
-        home_team: Home team abbreviation.
+        odds_data: List of game objects from the API.
+        home_team: Home team abbreviation (e.g. 'KC').
         away_team: Away team abbreviation.
 
     Returns:
-        FactorResult. Weight is 0 if the factor is unavailable.
+        Home-team spread as float, or None if not found.
+    """
+    for game in odds_data:
+        h = game.get("home_team", "").upper()
+        a = game.get("away_team", "").upper()
+        if home_team.upper() not in h and away_team.upper() not in a:
+            continue
+        for bookmaker in game.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market.get("key") != "spreads":
+                    continue
+                for outcome in market.get("outcomes", []):
+                    if home_team.upper() in outcome.get("name", "").upper():
+                        return float(outcome["point"])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Public interface
+# ---------------------------------------------------------------------------
+
+def calculate(
+    home_team: str,
+    away_team: str,
+    game_date: Optional[date] = None,
+) -> FactorResult:
+    """Calculate the betting lines factor for a matchup.
+
+    Routes automatically:
+    - Historical game (2021-2025) → CSV closing spread, no API call
+    - Current/upcoming game → live Odds API (requires ODDS_API_KEY)
+    - game_date=None → attempts live API only
+
+    Skips gracefully (weight=0) when spread data is unavailable.
+
+    Args:
+        home_team: Home team abbreviation (e.g. 'KC').
+        away_team: Away team abbreviation (e.g. 'BUF').
+        game_date: Date of the game. Required for historical lookups.
+
+    Returns:
+        FactorResult with score in [-100, +100]. Weight=0 if unavailable.
     """
     weight = settings.weight_betting_lines
 
-    if not settings.odds_api_key:
+    # --- Historical: use CSV closing lines ---
+    if game_date is not None and is_historical(game_date):
+        spread = get_spread(home_team, away_team, game_date)
+        if spread is None:
+            return _skip(f"no historical spread found for {home_team} vs {away_team} on {game_date}")
+        score = _spread_to_score(spread)
         return FactorResult(
             name="betting_lines",
-            score=0.0,
-            weight=0.0,
-            contribution=0.0,
-            supporting_data={"skipped": True, "reason": "no API key configured"},
+            score=score,
+            weight=weight,
+            contribution=score * weight,
+            supporting_data={
+                "home_team_spread": spread,
+                "source": "csv_closing_line",
+                "game_date": str(game_date),
+            },
         )
+
+    # --- Live: use Odds API for current/upcoming games ---
+    if not settings.odds_api_key:
+        return _skip("no API key configured and game is not in historical CSV range")
 
     odds_data = _fetch_odds()
     if odds_data is None:
-        return FactorResult(
-            name="betting_lines",
-            score=0.0,
-            weight=0.0,
-            contribution=0.0,
-            supporting_data={"skipped": True, "reason": "odds fetch failed"},
-        )
+        return _skip("odds API fetch failed")
+    if len(odds_data) == 0:
+        return _skip("no games currently available in odds feed (offseason)")
 
-    spread = _find_spread(odds_data, home_team, away_team)
+    spread = _find_live_spread(odds_data, home_team, away_team)
     if spread is None:
-        return FactorResult(
-            name="betting_lines",
-            score=0.0,
-            weight=0.0,
-            contribution=0.0,
-            supporting_data={
-                "skipped": True,
-                "reason": f"game not found in odds feed ({home_team} vs {away_team})",
-            },
-        )
+        return _skip(f"game not found in live odds feed ({home_team} vs {away_team})")
 
     score = _spread_to_score(spread)
     return FactorResult(
@@ -159,5 +186,9 @@ def calculate(home_team: str, away_team: str) -> FactorResult:
         score=score,
         weight=weight,
         contribution=score * weight,
-        supporting_data={"home_team_spread": spread},
+        supporting_data={
+            "home_team_spread": spread,
+            "source": "odds_api_live",
+            "game_date": str(game_date) if game_date else None,
+        },
     )

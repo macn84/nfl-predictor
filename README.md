@@ -128,7 +128,8 @@ backend/
 │   ├── data/
 │   │   ├── loader.py          # nflreadpy wrappers with CSV caching
 │   │   ├── coaches.py         # head coach lookup from static CSV
-│   │   └── weather.py         # game-time weather via Open-Meteo
+│   │   ├── weather.py         # game-time weather via Open-Meteo
+│   │   └── spreads.py         # historical closing spreads from data/spreads/ CSVs
 │   └── prediction/
 │       ├── engine.py          # orchestrates factors → PredictionResult
 │       ├── models.py          # Pydantic types (FactorResult, PredictionResult)
@@ -147,5 +148,7 @@ frontend/
 └── package.json
 data/                          # CSV cache + static datasets (gitignored)
 ├── nfl_coaches_full_dataset.csv   # required for coaching_matchup factor
-└── nfl_stadiums.csv               # required for weather factor
+├── nfl_stadiums.csv               # required for weather factor
+└── spreads/                       # historical closing spreads 2021–2025
+    └── nfl_{season}_spreads.csv
 ```

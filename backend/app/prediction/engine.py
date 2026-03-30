@@ -99,7 +99,7 @@ def predict(
         recent_form.calculate(schedules, home_team, away_team, game_date=game_date),
         home_away.calculate(schedules, home_team, away_team, season, game_date=game_date),
         head_to_head.calculate(schedules, home_team, away_team, game_date=game_date),
-        betting_lines.calculate(home_team, away_team),
+        betting_lines.calculate(home_team, away_team, game_date=game_date),
         coaching_matchup.calculate(schedules, home_team, away_team, season),
         weather_factor.calculate(home_team, game_date),
     ]
