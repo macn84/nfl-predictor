@@ -147,6 +147,9 @@ def get_stadium(team: str) -> StadiumRecord:
     """
     stadiums = _load_stadiums()
     team = team.upper()
+    # Normalise nflverse abbreviation variants
+    _ALIASES: dict[str, str] = {"LA": "LAR"}
+    team = _ALIASES.get(team, team)
     if team not in stadiums:
         raise KeyError(f"Team '{team}' not found in stadiums dataset.")
     return stadiums[team]

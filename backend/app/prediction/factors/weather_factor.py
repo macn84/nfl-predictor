@@ -16,23 +16,61 @@ import logging
 from datetime import date
 
 from app.config import settings
-from app.data.weather import WeatherCondition, classify_weather_bucket, get_game_weather_by_date
+from app.data.weather import GameWeather, WeatherCondition, get_game_weather_by_date
 from app.prediction.models import FactorResult
 
 logger = logging.getLogger(__name__)
 
-# Home-team advantage score per weather bucket.
-# Positive = home team benefits; all non-adverse buckets are 0.
-_BUCKET_SCORES: dict[str, float] = {
-    "dome":         0.0,
-    "sunny":        0.0,
-    "overcast":     0.0,
-    "rain":        10.0,
-    "rain_cold":   15.0,
-    "snow":        15.0,
-    "snow_cold":   20.0,
-    "unknown":      0.0,
-}
+
+def _continuous_score(weather: GameWeather) -> float:
+    """Compute continuous weather advantage score for the home team.
+
+    Combines temperature, wind, and precipitation components; capped at 100.
+
+    Args:
+        weather: GameWeather for a non-dome outdoor game.
+
+    Returns:
+        Score in [0.0, 100.0] representing home-team advantage from conditions.
+    """
+    # Temperature component (Fahrenheit)
+    temp_f = weather.temperature_f
+    if temp_f is not None:
+        if temp_f < 20:
+            temp_score = 20.0
+        elif temp_f < 32:
+            temp_score = 15.0
+        elif temp_f < 45:
+            temp_score = 8.0
+        else:
+            temp_score = 0.0
+    else:
+        temp_score = 0.0
+
+    # Wind component (convert kph → mph)
+    wind_kph = weather.wind_speed_kph
+    if wind_kph is not None:
+        wind_mph = wind_kph * 0.621
+        if wind_mph > 25:
+            wind_score = 15.0
+        elif wind_mph > 15:
+            wind_score = 8.0
+        elif wind_mph > 10:
+            wind_score = 3.0
+        else:
+            wind_score = 0.0
+    else:
+        wind_score = 0.0
+
+    # Precipitation component
+    if weather.condition == WeatherCondition.SNOW:
+        precip_score = 10.0
+    elif weather.condition == WeatherCondition.RAIN:
+        precip_score = 5.0
+    else:
+        precip_score = 0.0
+
+    return min(temp_score + wind_score + precip_score, 100.0)
 
 
 def _skip(reason: str) -> FactorResult:
@@ -54,9 +92,9 @@ def calculate(home_team: str, game_date: date | None) -> FactorResult:
                    the date is not available for a historical batch call).
 
     Returns:
-        FactorResult with score in [0, +20]. Positive favours the home team.
-        Returns weight=0 (skipped) when weather data is unavailable or
-        game_date is None.
+        FactorResult with score in [0, 45] (capped at 100). Positive favours
+        the home team. Returns weight=0 (skipped) when weather data is
+        unavailable or game_date is None.
     """
     if game_date is None:
         return _skip("game_date not provided")
@@ -73,8 +111,11 @@ def calculate(home_team: str, game_date: date | None) -> FactorResult:
     if weather.source == "error" or weather.condition == WeatherCondition.UNKNOWN:
         return _skip("weather data unavailable")
 
-    bucket = classify_weather_bucket(weather)
-    score = _BUCKET_SCORES.get(bucket, 0.0)
+    # Dome games return 0.0 immediately
+    if weather.is_dome or weather.condition == WeatherCondition.DOME:
+        score = 0.0
+    else:
+        score = _continuous_score(weather)
 
     weight = settings.weight_weather
     return FactorResult(
@@ -83,7 +124,6 @@ def calculate(home_team: str, game_date: date | None) -> FactorResult:
         weight=weight,
         contribution=score * weight,
         supporting_data={
-            "weather_bucket": bucket,
             "condition": weather.condition.value,
             "temperature_f": weather.temperature_f,
             "wind_speed_kph": weather.wind_speed_kph,
