@@ -6,7 +6,7 @@ import { GameCard } from './GameCard'
 function renderCard() {
   return render(
     <MemoryRouter>
-      <GameCard game={fixtureGame} season={2024} />
+      <GameCard game={fixtureGame} mode="predictions" season={2024} />
     </MemoryRouter>,
   )
 }

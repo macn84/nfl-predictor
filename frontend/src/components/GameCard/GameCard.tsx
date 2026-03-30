@@ -1,14 +1,25 @@
 import { Link } from 'react-router-dom'
-import type { GamePrediction } from '../../api/types'
+import type { GameCoverPrediction, GamePrediction } from '../../api/types'
+import type { PredictionMode } from '../../pages/WeeklyDashboard/WeeklyDashboard'
 import { ConfidenceBadge } from '../ConfidenceBadge/ConfidenceBadge'
 
 interface GameCardProps {
-  game: GamePrediction
+  game: GamePrediction | GameCoverPrediction
+  mode: PredictionMode
   season: number
 }
 
-export function GameCard({ game, season }: GameCardProps) {
-  const { home_team, away_team, predicted_winner, confidence, week, game_id, gameday } = game
+function formatSpread(team: string, spread: number): string {
+  if (spread === 0) return `${team} PK`
+  return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
+}
+
+export function GameCard({ game, mode, season }: GameCardProps) {
+  const { home_team, away_team, week, game_id, gameday } = game
+
+  const confidence = mode === 'predictions'
+    ? (game as GamePrediction).confidence
+    : (game as GameCoverPrediction).cover_confidence
 
   return (
     <Link
@@ -32,9 +43,51 @@ export function GameCard({ game, season }: GameCardProps) {
         </div>
         <ConfidenceBadge confidence={confidence} />
       </div>
-      <div className="text-sm text-gray-400">
-        Pick: <span className="font-semibold text-gray-100">{predicted_winner}</span>
+
+      {mode === 'predictions' ? (
+        <div className="text-sm text-gray-400">
+          Pick: <span className="font-semibold text-gray-100">
+            {(game as GamePrediction).predicted_winner}
+          </span>
+        </div>
+      ) : (
+        <CoverStats game={game as GameCoverPrediction} />
+      )}
+
+      {/* LLM narrative placeholder — replace with API call when wired */}
+      <div className="mt-3 pt-3 border-t border-gray-700">
+        <p className="text-xs text-gray-600 italic">
+          AI summary coming soon…
+        </p>
       </div>
     </Link>
+  )
+}
+
+function CoverStats({ game }: { game: GameCoverPrediction }) {
+  const { spread, predicted_cover, predicted_margin, home_team } = game
+
+  return (
+    <div className="text-sm text-gray-400 space-y-0.5">
+      {spread !== null ? (
+        <div>
+          Line: <span className="font-semibold text-gray-100">
+            {formatSpread(home_team, spread)}
+          </span>
+        </div>
+      ) : (
+        <div className="text-gray-600">No line available</div>
+      )}
+      {predicted_cover !== null && (
+        <div>
+          Cover: <span className="font-semibold text-gray-100">{predicted_cover}</span>
+          {predicted_margin !== null && (
+            <span className="text-gray-500 ml-1">
+              (by {Math.abs(predicted_margin).toFixed(1)})
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -48,7 +48,8 @@ Or from VS Code: **Cmd/Ctrl+Shift+B** (default build task) starts both servers, 
 | `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game winner detail |
 | `GET` | `/api/v1/covers/{week}?season=` | All cover predictions for a week |
 | `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail |
-| `GET` | `/api/v1/accuracy?season=` | Season accuracy vs. actual results |
+| `GET` | `/api/v1/accuracy?season=` | Season winner accuracy vs. actual results |
+| `GET` | `/api/v1/accuracy/covers?season=` | Season cover accuracy vs. actual results |
 | `POST` | `/api/v1/refresh` | Re-download and cache data for a season |
 
 `game_id` format is `{home}-{away}` in lowercase, e.g. `kc-buf`.
@@ -62,8 +63,11 @@ curl "http://localhost:8000/api/v1/predictions/1?season=2024"
 # Cover predictions for the same week
 curl "http://localhost:8000/api/v1/covers/1?season=2024"
 
-# Check season accuracy
+# Check winner accuracy
 curl "http://localhost:8000/api/v1/accuracy?season=2024"
+
+# Check cover accuracy
+curl "http://localhost:8000/api/v1/accuracy/covers?season=2024"
 ```
 
 ## Python usage (without the server)
@@ -99,7 +103,7 @@ The winner and cover modes use independent weight profiles so each can be tuned 
 | Coaching matchup | Coach vs. opponent record + direct coach head-to-head (requires `data/nfl_coaches_full_dataset.csv`; disabled by default) |
 | Weather | Game-time conditions via Open-Meteo (free, no key); dome games score 0; adverse conditions apply a small home advantage (disabled by default) |
 
-You may want to build your own validation tooling to backtest the engine against historical seasons — `predict()` and `predict_cover()` both accept a `game_date` parameter that gates factor calculations to prevent data leakage from future weeks.
+Both `predict()` and `predict_cover()` accept a `game_date` parameter that gates factor calculations to prevent data leakage from future weeks, making it straightforward to build evaluation scripts against historical seasons.
 
 ## Tests
 
@@ -121,6 +125,7 @@ backend/
 │   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
 │   │   ├── covers.py          # GET /api/v1/covers/{week}[/{game_id}]
 │   │   ├── accuracy.py        # GET /api/v1/accuracy
+│   │   ├── cover_accuracy.py  # GET /api/v1/accuracy/covers
 │   │   └── refresh.py         # POST /api/v1/refresh
 │   ├── data/
 │   │   ├── loader.py          # nflreadpy wrappers with CSV caching
@@ -141,7 +146,7 @@ frontend/
 │   │   ├── GameDetail/        # factor breakdown for a single game
 │   │   └── SeasonTracker/     # accuracy vs. actual results
 │   ├── components/            # ConfidenceBadge, FactorBar, GameCard, etc.
-│   ├── hooks/                 # usePredictions, useWeeks, useAccuracy, …
+│   ├── hooks/                 # usePredictions, useWeeks, useCovers, useAccuracy, useCoverAccuracy, …
 │   └── api/                   # typed fetch wrappers + response types
 └── package.json
 data/                          # CSV cache + static datasets (gitignored)

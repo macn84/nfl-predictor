@@ -34,6 +34,26 @@ export interface WeekPredictionsResponse {
   games: GamePrediction[]
 }
 
+export interface GameCoverPrediction {
+  game_id: string
+  season: number
+  week: number
+  gameday: string
+  home_team: string
+  away_team: string
+  spread: number | null
+  predicted_margin: number | null
+  predicted_cover: string | null
+  cover_confidence: number // 0..100
+  factors: FactorResult[]
+}
+
+export interface WeekCoversResponse {
+  season: number
+  week: number
+  games: GameCoverPrediction[]
+}
+
 export interface RefreshResponse {
   status: string
   season: number
