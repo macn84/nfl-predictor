@@ -30,7 +30,7 @@ install-frontend:
 	cd $(FRONTEND_DIR) && npm install
 
 backend:
-	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --reload --host 0.0.0.0 --port 8000
+	$(UVICORN) app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir $(BACKEND_DIR)
 
 frontend:
 	cd $(FRONTEND_DIR) && npm run dev
