@@ -30,3 +30,15 @@ class PredictionResult(BaseModel):
     predicted_winner: str
     confidence: float          # 0..100; represents certainty of predicted_winner
     factors: list[FactorResult]
+
+
+class CoverPredictionResult(BaseModel):
+    """Cover prediction for a single matchup."""
+
+    home_team: str
+    away_team: str
+    spread: float | None           # closing line (negative = home favoured)
+    predicted_margin: float | None  # calibrated from weighted_sum
+    predicted_cover: str | None    # team predicted to cover, None if no spread
+    cover_confidence: float        # 0-100, same scale as winner confidence
+    factors: list[FactorResult]

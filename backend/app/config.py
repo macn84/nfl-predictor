@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     weight_coaching_matchup: float = 0.0  # disabled by default; set in backend/.env
     weight_weather: float = 0.0           # disabled by default; set in backend/.env
 
+    # Cover mode weights — override in backend/.env to keep tuned values private.
+    # Defaults here give equal weight to all factors so the app runs without .env.
+    cover_weight_recent_form: float = 0.25
+    cover_weight_home_away: float = 0.25
+    cover_weight_head_to_head: float = 0.25
+    cover_weight_betting_lines: float = 0.25
+    cover_weight_coaching_matchup: float = 0.0  # disabled by default
+    cover_weight_weather: float = 0.0           # disabled by default
+
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time
@@ -48,6 +57,18 @@ class Settings(BaseSettings):
             "betting_lines": self.weight_betting_lines,
             "coaching_matchup": self.weight_coaching_matchup,
             "weather": self.weight_weather,
+        }
+
+    @property
+    def cover_weights(self) -> dict[str, float]:
+        """Return named factor weights for the cover prediction mode."""
+        return {
+            "recent_form": self.cover_weight_recent_form,
+            "home_away": self.cover_weight_home_away,
+            "head_to_head": self.cover_weight_head_to_head,
+            "betting_lines": self.cover_weight_betting_lines,
+            "coaching_matchup": self.cover_weight_coaching_matchup,
+            "weather": self.cover_weight_weather,
         }
 
 
