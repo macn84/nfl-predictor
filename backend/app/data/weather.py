@@ -27,7 +27,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 STADIUMS_CSV = DATA_DIR / "nfl_stadiums.csv"
 
 # Open-Meteo endpoints

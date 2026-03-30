@@ -7,6 +7,8 @@ away team performs on the road, using the current season's results.
 Score convention: positive → home team has a bigger home advantage.
 """
 
+from datetime import date
+
 import pandas as pd
 
 from app.config import settings
@@ -44,6 +46,7 @@ def calculate(
     home_team: str,
     away_team: str,
     season: int,
+    game_date: date | None = None,
 ) -> FactorResult:
     """Calculate the home/away splits factor for a matchup.
 
@@ -52,11 +55,16 @@ def calculate(
         home_team: Home team abbreviation.
         away_team: Away team abbreviation.
         season: NFL season year.
+        game_date: If provided, only games played strictly before this date are
+            considered. Prevents data leakage when back-testing historical games.
 
     Returns:
         FactorResult with score in -100..+100.
     """
     weight = settings.weight_home_away
+
+    if game_date is not None:
+        schedules = schedules[pd.to_datetime(schedules["gameday"]) < pd.Timestamp(game_date)]
 
     home_pct = _home_win_pct(schedules, home_team, season)
     away_pct = _away_win_pct(schedules, away_team, season)
@@ -77,5 +85,6 @@ def calculate(
             "away_team_away_win_pct": round(away_val, 3),
             "home_data_available": home_pct is not None,
             "away_data_available": away_pct is not None,
+            "game_date_filter": str(game_date) if game_date is not None else None,
         },
     )

@@ -15,7 +15,7 @@ from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 COACHES_CSV = DATA_DIR / "nfl_coaches_full_dataset.csv"
 
 

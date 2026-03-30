@@ -16,7 +16,7 @@ from app.prediction.factors import (
     home_away,
     recent_form,
 )
-from app.prediction.factors import weather as weather_factor
+from app.prediction.factors import weather_factor
 from app.prediction.models import FactorResult
 
 # ---------------------------------------------------------------------------
@@ -92,6 +92,30 @@ class TestRecentForm:
         assert "home_weighted_win_pct" in result.supporting_data
         assert "away_weighted_win_pct" in result.supporting_data
 
+    def test_game_date_filter_excludes_later_games(self):
+        """A KC loss played after game_date must not affect KC's recent form score."""
+        rows = [
+            # KC wins before cutoff
+            {"season": 2024, "week": 1, "gameday": "2024-09-08", "home_team": "KC",
+             "away_team": "BUF", "result": 7.0},
+            {"season": 2024, "week": 2, "gameday": "2024-09-15", "home_team": "KC",
+             "away_team": "LV", "result": 10.0},
+            # KC blowout loss AFTER cutoff — should be invisible with game_date filter
+            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "BUF",
+             "away_team": "KC", "result": 40.0},
+        ]
+        df = pd.DataFrame(rows)
+        cutoff = date(2024, 10, 1)
+        filtered = recent_form.calculate(df, "KC", "BUF", game_date=cutoff)
+        unfiltered = recent_form.calculate(df, "KC", "BUF")
+        # The post-cutoff KC loss tanks KC's score when unfiltered
+        assert filtered.score > unfiltered.score
+        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
+
+    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
+        result = recent_form.calculate(schedules, "KC", "BUF", game_date=None)
+        assert result.supporting_data["game_date_filter"] is None
+
 
 class TestHomeAway:
     def test_returns_factor_result(self, schedules):
@@ -117,6 +141,33 @@ class TestHomeAway:
         empty = pd.DataFrame(columns=["season", "home_team", "away_team", "result"])
         result = home_away.calculate(empty, "KC", "BUF", season=2024)
         assert result.score == 0.0
+
+    def test_game_date_filter_excludes_later_games(self):
+        """KC home losses after game_date must not drag down KC's home win pct."""
+        rows = [
+            # KC wins at home before cutoff
+            {"season": 2024, "week": 1, "gameday": "2024-09-08", "home_team": "KC",
+             "away_team": "BUF", "result": 7.0},
+            {"season": 2024, "week": 3, "gameday": "2024-09-22", "home_team": "KC",
+             "away_team": "LV", "result": 10.0},
+            # KC home loss AFTER cutoff
+            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "KC",
+             "away_team": "DEN", "result": -7.0},
+        ]
+        df = pd.DataFrame(rows)
+        cutoff = date(2024, 10, 1)
+        filtered = home_away.calculate(df, "KC", "BUF", season=2024, game_date=cutoff)
+        unfiltered = home_away.calculate(df, "KC", "BUF", season=2024)
+        # KC home win pct should be higher when post-cutoff loss is excluded
+        assert (
+            filtered.supporting_data["home_team_home_win_pct"]
+            > unfiltered.supporting_data["home_team_home_win_pct"]
+        )
+        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
+
+    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
+        result = home_away.calculate(schedules, "KC", "BUF", season=2024, game_date=None)
+        assert result.supporting_data["game_date_filter"] is None
 
 
 class TestHeadToHead:
@@ -148,6 +199,33 @@ class TestHeadToHead:
         # KC wins 3 of 4 h2h as home team → score > 0
         result = head_to_head.calculate(schedules, "KC", "BUF")
         assert result.score > 0
+
+    def test_game_date_filter_excludes_later_meetings(self):
+        """A KC loss to BUF after game_date must not reduce KC's h2h win pct."""
+        rows = [
+            # KC wins vs BUF before cutoff
+            {"season": 2023, "week": 6, "gameday": "2023-10-15", "home_team": "KC",
+             "away_team": "BUF", "result": 3.0},
+            {"season": 2022, "week": 5, "gameday": "2022-10-09", "home_team": "KC",
+             "away_team": "BUF", "result": 24.0},
+            # KC loss to BUF AFTER cutoff
+            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "KC",
+             "away_team": "BUF", "result": -14.0},
+        ]
+        df = pd.DataFrame(rows)
+        cutoff = date(2024, 10, 1)
+        filtered = head_to_head.calculate(df, "KC", "BUF", game_date=cutoff)
+        unfiltered = head_to_head.calculate(df, "KC", "BUF")
+        # KC h2h win pct should be higher when post-cutoff loss is excluded
+        assert (
+            filtered.supporting_data["home_team_h2h_win_pct"]
+            > unfiltered.supporting_data["home_team_h2h_win_pct"]
+        )
+        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
+
+    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
+        result = head_to_head.calculate(schedules, "KC", "BUF", game_date=None)
+        assert result.supporting_data["game_date_filter"] is None
 
 
 class TestBettingLines:
@@ -261,31 +339,31 @@ class TestWeather:
 
     def test_dome_returns_zero_score(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.DOME, source="dome",
                 is_dome=True, temperature_f=None, wind_speed_kph=None,
             ),
         )
-        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
         result = weather_factor.calculate("KC", date(2024, 9, 8))
         assert result.score == 0.0
         assert result.weight == pytest.approx(0.10)
 
     def test_snow_cold_returns_positive_score(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.SNOW, source="archive", temperature_f=28.0,
             ),
         )
-        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
         result = weather_factor.calculate("KC", date(2024, 1, 14))
         assert result.score == pytest.approx(20.0)
 
     def test_api_error_skips_factor(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.UNKNOWN, source="error"
             ),
@@ -296,7 +374,7 @@ class TestWeather:
 
     def test_score_in_range(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.RAIN, source="forecast"
             ),
@@ -306,18 +384,18 @@ class TestWeather:
 
     def test_contribution_equals_score_times_weight(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.RAIN, source="archive"
             ),
         )
-        monkeypatch.setattr("app.prediction.factors.weather.settings.weight_weather", 0.10)
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
         result = weather_factor.calculate("KC", date(2024, 9, 8))
         assert abs(result.contribution - result.score * result.weight) < 1e-9
 
     def test_supporting_data_fields_present(self, monkeypatch):
         monkeypatch.setattr(
-            "app.prediction.factors.weather.get_game_weather_by_date",
+            "app.prediction.factors.weather_factor.get_game_weather_by_date",
             lambda team, d, **kw: _make_game_weather(
                 condition=WeatherCondition.SUNNY, source="archive"
             ),

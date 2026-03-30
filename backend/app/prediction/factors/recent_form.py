@@ -8,6 +8,8 @@ win percentage where the most recent game carries the most weight
 Score convention: positive → home team has better recent form.
 """
 
+from datetime import date
+
 import pandas as pd
 
 from app.config import settings
@@ -60,6 +62,7 @@ def calculate(
     away_team: str,
     n: int | None = None,
     decay: float | None = None,
+    game_date: date | None = None,
 ) -> FactorResult:
     """Calculate the recent form factor for a matchup.
 
@@ -69,6 +72,8 @@ def calculate(
         away_team: Away team abbreviation (e.g. 'BUF').
         n: Override for recent_form_games setting.
         decay: Override for recent_form_decay setting.
+        game_date: If provided, only games played strictly before this date are
+            considered. Prevents data leakage when back-testing historical games.
 
     Returns:
         FactorResult with score in -100..+100.
@@ -76,6 +81,9 @@ def calculate(
     n = n or settings.recent_form_games
     decay = decay or settings.recent_form_decay
     weight = settings.weight_recent_form
+
+    if game_date is not None:
+        schedules = schedules[pd.to_datetime(schedules["gameday"]) < pd.Timestamp(game_date)]
 
     home_games = _team_games(schedules, home_team)
     away_games = _team_games(schedules, away_team)
@@ -97,5 +105,6 @@ def calculate(
             "away_weighted_win_pct": round(away_pct, 3),
             "games_considered": n,
             "decay": decay,
+            "game_date_filter": str(game_date) if game_date is not None else None,
         },
     )
