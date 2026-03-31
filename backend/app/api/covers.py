@@ -12,7 +12,10 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.config import settings
+from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
+from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
 from app.prediction.engine import predict_cover
 from app.prediction.models import CoverPredictionResult, FactorResult
 
@@ -56,14 +59,21 @@ def _game_id(home_team: str, away_team: str) -> str:
 
 
 def _cover_week_games(
-    season: int, week: int, schedules: pd.DataFrame
+    season: int, week: int, schedules: pd.DataFrame,
+    score_cache: dict[str, dict] | None = None,
 ) -> list[GameCoverPrediction]:
     """Run the cover prediction engine for every game in a given week.
+
+    For completed games (final scores recorded), uses score_cache when available
+    to skip live factor computation. Upcoming games always run predict_cover() live.
+    The detail endpoint bypasses this and always calls predict_cover() for full
+    supporting_data.
 
     Args:
         season: NFL season year.
         week: Week number.
         schedules: Pre-loaded schedules DataFrame (must cover season - 3..season).
+        score_cache: Pre-loaded score cache, or None to always call predict_cover().
 
     Returns:
         List of GameCoverPrediction objects ordered as they appear in the schedule.
@@ -86,9 +96,34 @@ def _cover_week_games(
             except ValueError:
                 pass
 
-        pred: CoverPredictionResult = predict_cover(
-            home, away, season, schedules=schedules, game_date=game_date
+        is_completed = (
+            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
         )
+        cache_key = f"{home}-{away}-{game_date}" if game_date else None
+        if is_completed and score_cache is not None and cache_key and cache_key in score_cache:
+            cached = score_cache[cache_key]
+            weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
+            cached_spread: float | None = cached.get("spread")
+            predicted_margin: float | None = (
+                MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT if cached_spread is not None else None
+            )
+            predicted_cover: str | None = (
+                home if (predicted_margin is not None and predicted_margin > cached_spread)  # type: ignore[operator]
+                else away if predicted_margin is not None
+                else None
+            )
+            spread = cached_spread
+            factors: list[FactorResult] = []
+        else:
+            pred: CoverPredictionResult = predict_cover(
+                home, away, season, schedules=schedules, game_date=game_date
+            )
+            spread = pred.spread
+            predicted_margin = pred.predicted_margin
+            predicted_cover = pred.predicted_cover
+            cover_confidence = pred.cover_confidence
+            factors = pred.factors
+
         results.append(
             GameCoverPrediction(
                 game_id=_game_id(home, away),
@@ -97,11 +132,11 @@ def _cover_week_games(
                 gameday=gameday,
                 home_team=home,
                 away_team=away,
-                spread=pred.spread,
-                predicted_margin=pred.predicted_margin,
-                predicted_cover=pred.predicted_cover,
-                cover_confidence=pred.cover_confidence,
-                factors=pred.factors,
+                spread=spread,
+                predicted_margin=predicted_margin,
+                predicted_cover=predicted_cover,
+                cover_confidence=cover_confidence,
+                factors=factors,
             )
         )
     return results
@@ -120,7 +155,8 @@ def get_week_covers(
     """Return cover predictions for every game in a given week."""
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
-    games = _cover_week_games(season, week, schedules)
+    score_cache = load_score_cache()
+    games = _cover_week_games(season, week, schedules, score_cache=score_cache)
     if not games:
         raise HTTPException(
             status_code=404,

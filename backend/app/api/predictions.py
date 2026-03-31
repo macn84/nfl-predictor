@@ -13,6 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.config import settings
+from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
@@ -67,14 +69,21 @@ def _game_id(home_team: str, away_team: str) -> str:
 
 
 def _predict_week_games(
-    season: int, week: int, schedules: pd.DataFrame
+    season: int, week: int, schedules: pd.DataFrame,
+    score_cache: dict[str, dict] | None = None,
 ) -> list[GamePrediction]:
     """Run the prediction engine for every game in a given week.
+
+    For completed games (final scores recorded), uses score_cache when available
+    to skip live factor computation. Upcoming games always run predict() live.
+    The detail endpoint bypasses this and always calls predict() for full
+    supporting_data.
 
     Args:
         season: NFL season year.
         week: Week number.
         schedules: Pre-loaded schedules DataFrame (must cover season - 3..season).
+        score_cache: Pre-loaded score cache, or None to always call predict().
 
     Returns:
         List of GamePrediction objects ordered as they appear in the schedule.
@@ -97,7 +106,20 @@ def _predict_week_games(
             except ValueError:
                 pass
 
-        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+        is_completed = (
+            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
+        )
+        cache_key = f"{home}-{away}-{game_date}" if game_date else None
+        if is_completed and score_cache is not None and cache_key and cache_key in score_cache:
+            weighted_sum, confidence = apply_weights(score_cache[cache_key], settings.weights)
+            predicted_winner = home if weighted_sum >= 0 else away
+            factors: list[FactorResult] = []
+        else:
+            pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+            predicted_winner = pred.predicted_winner
+            confidence = pred.confidence
+            factors = pred.factors
+
         results.append(
             GamePrediction(
                 game_id=_game_id(home, away),
@@ -106,9 +128,9 @@ def _predict_week_games(
                 gameday=gameday,
                 home_team=home,
                 away_team=away,
-                predicted_winner=pred.predicted_winner,
-                confidence=pred.confidence,
-                factors=pred.factors,
+                predicted_winner=predicted_winner,
+                confidence=confidence,
+                factors=factors,
             )
         )
     return results
@@ -149,7 +171,8 @@ def get_week_predictions(
     """Return predictions for every game in a given week."""
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
-    games = _predict_week_games(season, week, schedules)
+    score_cache = load_score_cache()
+    games = _predict_week_games(season, week, schedules, score_cache=score_cache)
     if not games:
         raise HTTPException(
             status_code=404,

@@ -11,8 +11,11 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.accuracy import AccuracyResponse, TierAccuracy, WeekAccuracy, _TIER_ORDER, _confidence_tier
+from app.config import settings
+from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.data.spreads import get_spread
+from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
 from app.prediction.engine import predict_cover
 
 router = APIRouter(prefix="/api/v1")
@@ -61,6 +64,7 @@ def get_cover_accuracy(
     tier_stats: dict[str, dict[str, int]] = {t: {"correct": 0, "total": 0} for t in _TIER_ORDER}
     total_correct = 0
     total_picks = 0
+    score_cache = load_score_cache()
 
     for _, row in completed.iterrows():
         home = str(row["home_team"])
@@ -75,25 +79,37 @@ def get_cover_accuracy(
             continue
         game_date = date.fromisoformat(str(gameday_raw))
 
-        spread = get_spread(home, away, game_date)
-        if spread is None:
-            continue  # no line — skip
-
-        if actual_margin == spread:
-            continue  # push — skip
-
-        pred = predict_cover(home, away, season, schedules=schedules, game_date=game_date)
-        if pred.predicted_cover is None:
-            continue
+        cache_key = f"{home}-{away}-{game_date}"
+        if score_cache is not None and cache_key in score_cache:
+            cached = score_cache[cache_key]
+            weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
+            spread: float | None = cached.get("spread")
+            if spread is None:
+                continue
+            if actual_margin == spread:
+                continue  # push — skip
+            predicted_margin = MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT
+            predicted_cover: str | None = home if predicted_margin > spread else away
+        else:
+            spread = get_spread(home, away, game_date)
+            if spread is None:
+                continue  # no line — skip
+            if actual_margin == spread:
+                continue  # push — skip
+            pred = predict_cover(home, away, season, schedules=schedules, game_date=game_date)
+            if pred.predicted_cover is None:
+                continue
+            predicted_cover = pred.predicted_cover
+            cover_confidence = pred.cover_confidence
 
         actual_cover = home if actual_margin > spread else away
-        correct = int(pred.predicted_cover == actual_cover)
+        correct = int(predicted_cover == actual_cover)
 
         total_correct += correct
         total_picks += 1
         week_stats[week]["correct"] += correct
         week_stats[week]["total"] += 1
-        tier = _confidence_tier(pred.cover_confidence)
+        tier = _confidence_tier(cover_confidence)
         tier_stats[tier]["correct"] += correct
         tier_stats[tier]["total"] += 1
 

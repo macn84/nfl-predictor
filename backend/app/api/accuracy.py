@@ -10,6 +10,8 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.config import settings
+from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.prediction.engine import predict
 
@@ -114,6 +116,7 @@ def get_accuracy(
     week_stats: dict[int, dict[str, int]] = defaultdict(lambda: {"correct": 0, "total": 0})
     tier_stats: dict[str, dict[str, int]] = {t: {"correct": 0, "total": 0} for t in _TIER_ORDER}
     total_correct = 0
+    score_cache = load_score_cache()
 
     for _, row in completed.iterrows():
         home = str(row["home_team"])
@@ -122,13 +125,20 @@ def get_accuracy(
         actual_winner = home if float(row["home_score"]) > float(row["away_score"]) else away
 
         game_date = date.fromisoformat(str(row["gameday"]))
-        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
-        correct = int(pred.predicted_winner == actual_winner)
+        cache_key = f"{home}-{away}-{game_date}"
+        if score_cache is not None and cache_key in score_cache:
+            weighted_sum, confidence = apply_weights(score_cache[cache_key], settings.weights)
+            predicted_winner = home if weighted_sum >= 0 else away
+        else:
+            pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+            predicted_winner = pred.predicted_winner
+            confidence = pred.confidence
+        correct = int(predicted_winner == actual_winner)
 
         week_stats[week]["correct"] += correct
         week_stats[week]["total"] += 1
 
-        tier = _confidence_tier(pred.confidence)
+        tier = _confidence_tier(confidence)
         tier_stats[tier]["correct"] += correct
         tier_stats[tier]["total"] += 1
 

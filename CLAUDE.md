@@ -26,6 +26,7 @@ Two prediction modes: **winner** (outright result) and **cover** (beats the spre
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/cover_accuracy.py` | `GET /api/v1/accuracy/covers` — same schema as accuracy.py but for cover picks; excludes games with no spread data and pushes |
 | `api/refresh.py` | `POST /api/v1/refresh` — triggers data fetch |
+| `data/cache.py` | Optional score-cache loader. `load_score_cache()` / `apply_weights()` — used by all prediction and accuracy endpoints to serve completed games without re-running the engine. Falls back to live `predict()` calls on a miss or if the cache file is absent. |
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2021–2026 incl. interim stints. |
 | `data/weather.py` | Game-time weather via Open-Meteo (no key, free). `get_game_weather(home_team, datetime)` auto-routes to archive API (past) or forecast API (≤16 days ahead). Dome games short-circuit — no API call. Requires `data/nfl_stadiums.csv`. |
@@ -75,7 +76,7 @@ Do not simplify this logic — the two cases are intentionally different.
 
 | File | Purpose |
 |------|---------|
-| `backtest.py` | CLI: runs completed season games through the engine with `game_date` gating (no leakage). `--mode winner\|cover`, `--weeks 1-9`, `--verbose`. Fast path via `data/score_cache.json` when present (see above). `--json` flag emits `AccuracyResponse`-shaped JSON for piping. |
+| `backtest.py` | CLI: runs completed season games through the engine with `game_date` gating (no leakage). `--mode winner\|cover`, `--weeks 1-9`, `--verbose`. Uses `data/score_cache.json` when present for fast weight-sweep mode. `--json` flag emits `AccuracyResponse`-shaped JSON for piping. |
 
 ### Dev Tooling
 
@@ -122,7 +123,7 @@ No auth, no key. Archive endpoint for past games; forecast endpoint for games �
 - `nfl_coaches_full_dataset.csv` — head coaches 2021–2026, columns: GUID, Head Coach Full Name, Team Abbreviation, NFL Team Full Name, Season, Is Interim, Start Date, End Date
 - `nfl_stadiums.csv` — per-team stadium metadata (see above)
 - `spreads/nfl_{season}_spreads.csv` — historical closing spreads for 2021–2025 seasons (nflverse format); two rows per game (one per team), keyed on `id`, `home_team`, `team`, `point`, `commence_time`
-- `score_cache.json` (gitignored, optional) — pre-computed factor scores keyed by `"{home}-{away}-{date}"`. When present, `backtest.py` applies weight vectors directly to the cached scores without re-calling the engine — useful for rapid weight sweeps. Keys per entry: `factors` dict (score + skipped), `spread`.
+- `score_cache.json` (gitignored, optional) — pre-computed factor scores for completed games. When present, `backtest.py` and all API endpoints use it to skip live engine calls — useful for rapid weight sweeps and fast API responses. See `claude-local.md` for format details.
 
 ## Code Conventions
 
