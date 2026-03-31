@@ -15,23 +15,31 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [username, setUsername] = useState<string | null>(null)
+  const [authDisabled, setAuthDisabled] = useState(false)
 
-  // Validate token on mount by calling /auth/me
+  // Validate token on mount by calling /auth/me.
+  // Also handles AUTH_DISABLED=true: the endpoint returns 200 with no token.
   useEffect(() => {
-    if (!token) return
-    fetch('/api/v1/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const headers: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}` }
+      : {}
+    fetch('/api/v1/auth/me', { headers })
       .then((r) => {
-        if (!r.ok) throw new Error('invalid')
+        if (!r.ok) throw new Error('unauthenticated')
         return r.json() as Promise<{ username: string }>
       })
-      .then((data) => setUsername(data.username))
+      .then((data) => {
+        setUsername(data.username)
+        if (!token) setAuthDisabled(true)
+      })
       .catch(() => {
-        // Token expired or invalid — clear it
-        localStorage.removeItem(TOKEN_KEY)
-        setToken(null)
-        setUsername(null)
+        setAuthDisabled(false)
+        if (token) {
+          // Token expired or invalid — clear it
+          localStorage.removeItem(TOKEN_KEY)
+          setToken(null)
+          setUsername(null)
+        }
       })
   }, [token])
 
@@ -48,8 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ token, isAuthenticated: token !== null, username, login, logout }),
-    [token, username, login, logout],
+    () => ({ token, isAuthenticated: token !== null || authDisabled, username, login, logout }),
+    [token, authDisabled, username, login, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
