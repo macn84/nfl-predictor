@@ -190,11 +190,34 @@ def get_game_prediction(
     """Return the prediction for a single game identified by '{home}-{away}' (lowercase)."""
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
-    games = _predict_week_games(season, week, schedules)
-    match = next((g for g in games if g.game_id == game_id), None)
-    if match is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Game '{game_id}' not found in season {season} week {week}",
+    week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
+    for _, row in week_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        if _game_id(home, away) != game_id:
+            continue
+        gameday_raw = row.get("gameday", "")
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+        return GamePrediction(
+            game_id=game_id,
+            season=season,
+            week=week,
+            gameday=gameday,
+            home_team=home,
+            away_team=away,
+            predicted_winner=pred.predicted_winner,
+            confidence=pred.confidence,
+            factors=pred.factors,
         )
-    return match
+    raise HTTPException(
+        status_code=404,
+        detail=f"Game '{game_id}' not found in season {season} week {week}",
+    )

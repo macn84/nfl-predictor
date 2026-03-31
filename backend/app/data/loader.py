@@ -11,6 +11,8 @@ import nflreadpy as nfl
 
 from app.config import settings
 
+_schedules_memory: dict[str, pd.DataFrame] = {}
+
 
 def _cache_path(name: str) -> str:
     """Return absolute path for a named cache file."""
@@ -31,11 +33,16 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
         gameday, spread_line, total_line.
     """
     name = f"schedules_{'_'.join(map(str, sorted(seasons)))}"
+    if not force_refresh and name in _schedules_memory:
+        return _schedules_memory[name]
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
+        _schedules_memory[name] = df
+        return df
     df = nfl.load_schedules(seasons).to_pandas()
     df.to_csv(path, index=False)
+    _schedules_memory[name] = df
     return df
 
 

@@ -82,7 +82,13 @@ export function GameDetail() {
                   {entries.map(([k, v]) => (
                     <div key={k} className="contents">
                       <dt className="text-xs text-rtc-dim capitalize font-mono">{k.replace(/_/g, ' ')}</dt>
-                      <dd className="text-xs text-rtc-text font-mono">{String(v)}</dd>
+                      <dd className="text-xs text-rtc-text font-mono">
+                        {v !== null && typeof v === 'object' && !Array.isArray(v)
+                          ? Object.entries(v as Record<string, unknown>)
+                              .map(([k2, v2]) => `${k2}: ${v2}`)
+                              .join(', ')
+                          : String(v)}
+                      </dd>
                     </div>
                   ))}
                 </dl>
