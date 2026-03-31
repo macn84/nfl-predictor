@@ -5,6 +5,7 @@ GET /api/v1/accuracy?season=YYYY — accuracy for all completed games in a seaso
 """
 
 from collections import defaultdict
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -120,7 +121,8 @@ def get_accuracy(
         week = int(row["week"])
         actual_winner = home if float(row["home_score"]) > float(row["away_score"]) else away
 
-        pred = predict(home, away, season, schedules=schedules)
+        game_date = date.fromisoformat(str(row["gameday"]))
+        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
         correct = int(pred.predicted_winner == actual_winner)
 
         week_stats[week]["correct"] += correct
