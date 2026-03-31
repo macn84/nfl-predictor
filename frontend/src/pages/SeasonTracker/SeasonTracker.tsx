@@ -12,28 +12,28 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
   return (
     <div className="space-y-6">
       {/* Overall accuracy card */}
-      <div className="bg-rtc-surface border border-rtc-border rounded-lg p-6 flex items-center gap-6">
-        <div className="font-display text-6xl text-rtc-green" style={{ textShadow: '0 0 20px rgba(0,200,81,0.4)' }}>
+      <div className="bg-app-surface border border-app-border rounded-lg p-6 flex items-center gap-6">
+        <div className="font-display text-6xl text-app-green" style={{ textShadow: '0 0 20px rgba(0,200,81,0.4)' }}>
           {data.accuracy}%
         </div>
         <div>
-          <div className="text-rtc-text text-lg">
+          <div className="text-app-text text-lg">
             {data.correct} of {data.total} games correct
           </div>
-          <div className="text-rtc-dim text-sm mt-1 font-mono">{season} season · completed games</div>
+          <div className="text-app-dim text-sm mt-1 font-mono">{season} season · completed games</div>
         </div>
       </div>
 
       {/* By confidence tier */}
       {data.by_tier.length > 0 && (
         <div>
-          <h2 className="font-mono text-xs font-semibold text-rtc-green uppercase tracking-widest mb-3">
+          <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
             Accuracy by Confidence Tier
           </h2>
-          <div className="bg-rtc-surface border border-rtc-border rounded-lg overflow-hidden">
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-rtc-border text-rtc-muted font-mono text-xs">
+                <tr className="border-b border-app-border text-app-muted font-mono text-xs">
                   <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Confidence</th>
                   <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Record</th>
                   <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Accuracy</th>
@@ -42,18 +42,18 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
               </thead>
               <tbody>
                 {data.by_tier.map((tier) => (
-                  <tr key={tier.tier} className="border-b border-rtc-border last:border-0 hover:bg-rtc-surface2 transition-colors">
-                    <td className="px-4 py-3 text-rtc-text font-medium font-mono">{tier.tier}%</td>
-                    <td className="px-4 py-3 text-right text-rtc-muted font-mono">
+                  <tr key={tier.tier} className="border-b border-app-border last:border-0 hover:bg-app-surface2 transition-colors">
+                    <td className="px-4 py-3 text-app-text font-medium font-mono">{tier.tier}%</td>
+                    <td className="px-4 py-3 text-right text-app-muted font-mono">
                       {tier.correct}–{tier.total - tier.correct}
                     </td>
-                    <td className="px-4 py-3 text-right text-rtc-green font-semibold font-mono">
+                    <td className="px-4 py-3 text-right text-app-green font-semibold font-mono">
                       {tier.accuracy}%
                     </td>
                     <td className="px-4 py-3">
-                      <div className="h-2 bg-rtc-surface2 rounded-full overflow-hidden border border-rtc-border">
+                      <div className="h-2 bg-app-surface2 rounded-full overflow-hidden border border-app-border">
                         <div
-                          className="h-full bg-rtc-green rounded-full"
+                          className="h-full bg-app-green rounded-full"
                           style={{ width: `${tier.accuracy}%` }}
                         />
                       </div>
@@ -69,13 +69,13 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
       {/* By week */}
       {data.by_week.length > 0 && (
         <div>
-          <h2 className="font-mono text-xs font-semibold text-rtc-green uppercase tracking-widest mb-3">
+          <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
             Week-by-Week
           </h2>
-          <div className="bg-rtc-surface border border-rtc-border rounded-lg overflow-hidden">
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-rtc-border text-rtc-muted font-mono text-xs">
+                <tr className="border-b border-app-border text-app-muted font-mono text-xs">
                   <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Week</th>
                   <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Record</th>
                   <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Accuracy</th>
@@ -84,18 +84,18 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
               </thead>
               <tbody>
                 {data.by_week.map((w) => (
-                  <tr key={w.week} className="border-b border-rtc-border last:border-0 hover:bg-rtc-surface2 transition-colors">
-                    <td className="px-4 py-3 text-rtc-text font-medium font-mono">Week {w.week}</td>
-                    <td className="px-4 py-3 text-right text-rtc-muted font-mono">
+                  <tr key={w.week} className="border-b border-app-border last:border-0 hover:bg-app-surface2 transition-colors">
+                    <td className="px-4 py-3 text-app-text font-medium font-mono">Week {w.week}</td>
+                    <td className="px-4 py-3 text-right text-app-muted font-mono">
                       {w.correct}–{w.total - w.correct}
                     </td>
-                    <td className="px-4 py-3 text-right text-rtc-green font-semibold font-mono">
+                    <td className="px-4 py-3 text-right text-app-green font-semibold font-mono">
                       {w.accuracy}%
                     </td>
                     <td className="px-4 py-3">
-                      <div className="h-2 bg-rtc-surface2 rounded-full overflow-hidden border border-rtc-border">
+                      <div className="h-2 bg-app-surface2 rounded-full overflow-hidden border border-app-border">
                         <div
-                          className="h-full bg-rtc-green rounded-full"
+                          className="h-full bg-app-green rounded-full"
                           style={{ width: `${w.accuracy}%` }}
                         />
                       </div>
@@ -109,7 +109,7 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
       )}
 
       {data.total === 0 && (
-        <div className="text-rtc-dim text-center py-8 font-mono text-sm">
+        <div className="text-app-dim text-center py-8 font-mono text-sm">
           No completed games found for the {season} season yet.
         </div>
       )}
@@ -141,46 +141,46 @@ export function SeasonTracker() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <h1 className="font-display text-3xl tracking-wider text-white">Season Accuracy</h1>
-          <div className="flex rounded overflow-hidden border border-rtc-border text-sm font-mono">
+          <div className="flex rounded overflow-hidden border border-app-border text-sm font-mono">
             <button
               onClick={() => setMode('winner')}
               className={`px-3 py-1.5 transition-colors ${
                 mode === 'winner'
-                  ? 'bg-rtc-green text-black font-semibold'
-                  : 'bg-rtc-surface text-rtc-muted hover:text-rtc-text'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
               }`}
             >
               Winner
             </button>
             <button
               onClick={() => setMode('cover')}
-              className={`px-3 py-1.5 transition-colors border-l border-rtc-border ${
+              className={`px-3 py-1.5 transition-colors border-l border-app-border ${
                 mode === 'cover'
-                  ? 'bg-rtc-green text-black font-semibold'
-                  : 'bg-rtc-surface text-rtc-muted hover:text-rtc-text'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
               }`}
             >
               Cover
             </button>
           </div>
         </div>
-        <label className="flex items-center gap-2 text-sm text-rtc-muted font-mono">
+        <label className="flex items-center gap-2 text-sm text-app-muted font-mono">
           Season
           <input
             type="number"
             value={season}
             onChange={handleSeasonChange}
-            className="w-20 bg-rtc-surface border border-rtc-border rounded px-2 py-1 text-rtc-text text-sm font-mono focus:border-rtc-green focus:outline-none"
+            className="w-20 bg-app-surface border border-app-border rounded px-2 py-1 text-app-text text-sm font-mono focus:border-app-green focus:outline-none"
             min={2000}
             max={2099}
           />
         </label>
       </div>
 
-      {error && <div className="text-rtc-red mb-4 font-mono text-sm">{error}</div>}
+      {error && <div className="text-app-red mb-4 font-mono text-sm">{error}</div>}
 
       {loading ? (
-        <div className="text-rtc-muted font-mono text-sm">Loading accuracy data…</div>
+        <div className="text-app-muted font-mono text-sm">Loading accuracy data…</div>
       ) : data ? (
         <AccuracyTables data={data} season={season} />
       ) : null}

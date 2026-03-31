@@ -1,26 +1,42 @@
 import { Link, Route, Routes } from 'react-router-dom'
-import smHeader from './assets/sm-header.png'
+import { brand } from './branding/config'
 import { GameDetail } from './pages/GameDetail/GameDetail'
 import { SeasonTracker } from './pages/SeasonTracker/SeasonTracker'
 import { WeeklyDashboard } from './pages/WeeklyDashboard/WeeklyDashboard'
 
 export function App() {
   return (
-    <div className="min-h-screen bg-rtc-bg text-rtc-text">
-      <nav className="bg-rtc-bg2 border-b-2 border-rtc-green px-6 flex items-stretch">
-        <Link to="/" className="flex items-center py-2 mr-8 shrink-0">
-          <img src={smHeader} alt="Roughing the Gambler — Sharp Picks. Smart Money." className="h-10 w-auto" />
+    <div className="min-h-screen bg-app-bg text-app-text">
+      <nav className="bg-app-bg2 border-b-2 border-app-green px-6 flex items-stretch">
+        <Link to="/" className="flex items-center gap-3 py-3 mr-8 shrink-0">
+          {brand.navLogo ? (
+            <img src={brand.navLogo.src} alt={brand.navLogo.alt} className="h-10 w-auto" />
+          ) : (
+            <>
+              <span className="font-display text-4xl text-app-green tracking-widest leading-none">
+                {brand.appName.split(' ').map((w) => w[0]).join('')}
+              </span>
+              <div>
+                <div className="font-display text-xl text-white tracking-wider leading-none">
+                  {brand.appName.toUpperCase()}
+                </div>
+                <div className="font-mono text-xs text-app-green tracking-widest">
+                  {brand.appTagline.toUpperCase()}
+                </div>
+              </div>
+            </>
+          )}
         </Link>
         <div className="flex items-stretch gap-1">
           <Link
             to="/"
-            className="flex items-center text-rtc-muted hover:text-rtc-green text-xs font-semibold px-4 border-b-2 border-transparent hover:border-rtc-green transition-colors uppercase tracking-wider"
+            className="flex items-center text-app-muted hover:text-app-green text-xs font-semibold px-4 border-b-2 border-transparent hover:border-app-green transition-colors uppercase tracking-wider"
           >
             Weekly Picks
           </Link>
           <Link
             to="/season"
-            className="flex items-center text-rtc-muted hover:text-rtc-green text-xs font-semibold px-4 border-b-2 border-transparent hover:border-rtc-green transition-colors uppercase tracking-wider"
+            className="flex items-center text-app-muted hover:text-app-green text-xs font-semibold px-4 border-b-2 border-transparent hover:border-app-green transition-colors uppercase tracking-wider"
           >
             Season Tracker
           </Link>

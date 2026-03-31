@@ -3,9 +3,9 @@ interface ConfidenceBadgeProps {
 }
 
 function colorClass(confidence: number): string {
-  if (confidence >= 70) return 'bg-rtc-green text-black'
-  if (confidence >= 55) return 'bg-rtc-gold text-black'
-  return 'bg-rtc-red text-white'
+  if (confidence >= 70) return 'bg-app-green text-black'
+  if (confidence >= 55) return 'bg-app-gold text-black'
+  return 'bg-app-red text-white'
 }
 
 export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {

@@ -15,8 +15,8 @@ export function WeekSelector({ weeks, selectedWeek, onSelect }: WeekSelectorProp
           onClick={() => onSelect(week)}
           className={`px-3 py-1 rounded text-sm font-medium font-mono transition-colors ${
             week === selectedWeek
-              ? 'bg-rtc-green text-black'
-              : 'bg-rtc-surface text-rtc-muted border border-rtc-border hover:bg-rtc-surface2 hover:text-rtc-text'
+              ? 'bg-app-green text-black'
+              : 'bg-app-surface text-app-muted border border-app-border hover:bg-app-surface2 hover:text-app-text'
           }`}
         >
           Week {week}

@@ -1,3 +1,9 @@
+# Branding overlay (populated by make install or make setup-private)
+src/branding/
+
+# Favicon (copied from branding/assets/ by make install)
+public/favicon.png
+
 # Logs
 logs
 *.log

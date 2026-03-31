@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import header from '../../assets/header.png'
 import type { GameCoverPrediction, GamePrediction } from '../../api/types'
+import { brand } from '../../branding/config'
 import { GameCard } from '../../components/GameCard/GameCard'
 import type { SortOption } from '../../components/SortFilterBar/SortFilterBar'
 import { SortFilterBar } from '../../components/SortFilterBar/SortFilterBar'
@@ -74,23 +74,30 @@ export function WeeklyDashboard() {
   }
 
   if (weeksError) {
-    return <div className="text-rtc-red p-4 font-mono">Error loading weeks: {weeksError}</div>
+    return <div className="text-app-red p-4 font-mono">Error loading weeks: {weeksError}</div>
   }
 
   return (
     <div>
-      <div className="mb-6 -mx-6 -mt-6">
-        <img src={header} alt="Roughing the Gambler" className="w-full object-cover max-h-24 object-center" />
-      </div>
+      {brand.dashboardHeader && (
+        <div className="mb-6 -mx-6 -mt-6">
+          <img
+            src={brand.dashboardHeader.src}
+            alt={brand.dashboardHeader.alt}
+            className="w-full object-cover max-h-24 object-center"
+          />
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h1 className="font-display text-3xl tracking-wider text-white">
-            Week {selectedWeek} <span className="text-rtc-muted text-xl">·</span>
+            Week {selectedWeek} <span className="text-app-muted text-xl">·</span>
           </h1>
           <select
             value={season}
             onChange={(e) => handleSeasonSelect(Number(e.target.value))}
-            className="bg-rtc-surface border border-rtc-border text-white font-display text-2xl tracking-wider rounded px-2 py-0.5 focus:outline-none focus:border-rtc-green cursor-pointer"
+            className="bg-app-surface border border-app-border text-white font-display text-2xl tracking-wider rounded px-2 py-0.5 focus:outline-none focus:border-app-green cursor-pointer"
           >
             {AVAILABLE_SEASONS.map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -98,23 +105,23 @@ export function WeeklyDashboard() {
           </select>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex rounded overflow-hidden border border-rtc-border text-sm font-mono">
+          <div className="flex rounded overflow-hidden border border-app-border text-sm font-mono">
             <button
               onClick={() => setMode('predictions')}
               className={`px-3 py-1.5 transition-colors ${
                 mode === 'predictions'
-                  ? 'bg-rtc-green text-black font-semibold'
-                  : 'bg-rtc-surface text-rtc-muted hover:text-rtc-text'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
               }`}
             >
               Winner
             </button>
             <button
               onClick={() => setMode('covers')}
-              className={`px-3 py-1.5 transition-colors border-l border-rtc-border ${
+              className={`px-3 py-1.5 transition-colors border-l border-app-border ${
                 mode === 'covers'
-                  ? 'bg-rtc-green text-black font-semibold'
-                  : 'bg-rtc-surface text-rtc-muted hover:text-rtc-text'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
               }`}
             >
               Cover
@@ -125,7 +132,7 @@ export function WeeklyDashboard() {
       </div>
 
       {weeksLoading ? (
-        <div className="text-rtc-muted mb-4 font-mono text-sm">Loading weeks…</div>
+        <div className="text-app-muted mb-4 font-mono text-sm">Loading weeks…</div>
       ) : weeksData ? (
         <div className="mb-6">
           <WeekSelector
@@ -137,11 +144,11 @@ export function WeeklyDashboard() {
       ) : null}
 
       {error && (
-        <div className="text-rtc-red mb-4 font-mono text-sm">Error loading games: {error}</div>
+        <div className="text-app-red mb-4 font-mono text-sm">Error loading games: {error}</div>
       )}
 
       {loading ? (
-        <div className="text-rtc-muted font-mono text-sm">Loading predictions…</div>
+        <div className="text-app-muted font-mono text-sm">Loading predictions…</div>
       ) : mode === 'predictions' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedPredictions.map((game) => (

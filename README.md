@@ -114,6 +114,51 @@ make test-frontend    # Vitest only
 make lint             # ruff + eslint
 ```
 
+## Branding
+
+The app ships with a generic "NFL Predictor" theme. All branding lives in `frontend/src/branding/` — a gitignored directory populated at install time from the committed defaults in `frontend/src/branding.default/`.
+
+**To apply your own branding:**
+
+1. Create a `branding/` directory with this structure:
+
+```
+branding/
+├── config.ts          # brand name, tagline, logo + header image refs
+└── assets/
+    ├── favicon.png    # browser tab icon (any square PNG)
+    ├── sm-header.png  # nav bar logo image (replaces text fallback)
+    └── header.png     # optional full-width dashboard banner
+```
+
+2. `config.ts` must export a `brand` object matching the `BrandConfig` type from `branding.default/config.ts`. Template:
+
+```ts
+import type { BrandConfig } from '../branding.default/config'
+import smHeader from './assets/sm-header.png'
+import header from './assets/header.png'
+
+export const brand: BrandConfig = {
+  appName: 'Your App Name',
+  appTagline: 'Your tagline here',
+  navLogo: { src: smHeader, alt: 'Your App Name' },
+  dashboardHeader: { src: header, alt: 'Your App Name' },
+}
+```
+
+Set `navLogo` and `dashboardHeader` to `null` to use the text fallback nav and no banner.
+
+3. Copy your `branding/` directory to `frontend/src/branding/` and copy `favicon.png` to `frontend/public/favicon.png`.
+
+4. Optionally override the page title and favicon reference by creating `frontend/.env.local` (gitignored):
+
+```
+VITE_APP_TITLE=Your App Name
+VITE_APP_FAVICON=/favicon.png
+```
+
+If you maintain a private overlay repo alongside this one, add a `make setup-private` target (or extend the existing one) that automates steps 3–4.
+
 ## Project structure
 
 ```

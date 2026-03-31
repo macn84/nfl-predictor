@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node -e \"require('fs').existsSync('src/branding')||process.exit(1)\" || (echo 'ERROR: src/branding/ missing — run make install first' && exit 1)",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

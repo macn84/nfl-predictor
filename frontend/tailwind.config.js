@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        rtc: {
+        app: {
           bg:           '#080b14',
           bg2:          '#0d1117',
           bg3:          '#111827',

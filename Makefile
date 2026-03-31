@@ -27,6 +27,14 @@ install-backend:
 	$(PIP) install -e "$(BACKEND_DIR)[dev]"
 
 install-frontend:
+	@if [ ! -d "$(FRONTEND_DIR)/src/branding" ]; then \
+		cp -r "$(FRONTEND_DIR)/src/branding.default" "$(FRONTEND_DIR)/src/branding"; \
+		echo "Initialized frontend/src/branding/ from defaults"; \
+	fi
+	@if [ ! -f "$(FRONTEND_DIR)/public/favicon.png" ] && [ -f "$(FRONTEND_DIR)/src/branding/assets/favicon.png" ]; then \
+		cp "$(FRONTEND_DIR)/src/branding/assets/favicon.png" "$(FRONTEND_DIR)/public/favicon.png"; \
+		echo "Installed favicon from branding/assets/"; \
+	fi
 	cd $(FRONTEND_DIR) && npm install
 
 backend:
@@ -73,5 +81,18 @@ setup-private:
 		echo "Linked validation/ -> $(PRIVATE)/validation"; \
 	else \
 		echo "validation/ already exists — skipping"; \
+	fi
+	@if [ -d "$(PRIVATE)/frontend/branding" ]; then \
+		rm -rf "$(FRONTEND_DIR)/src/branding"; \
+		cp -r "$(PRIVATE)/frontend/branding" "$(FRONTEND_DIR)/src/branding"; \
+		echo "Installed branding from $(PRIVATE)/frontend/branding"; \
+	fi
+	@if [ -f "$(PRIVATE)/frontend/branding/assets/favicon.png" ]; then \
+		cp "$(PRIVATE)/frontend/branding/assets/favicon.png" "$(FRONTEND_DIR)/public/favicon.png"; \
+		echo "Installed favicon from private branding"; \
+	fi
+	@if [ -f "$(PRIVATE)/frontend/.env.local" ]; then \
+		cp "$(PRIVATE)/frontend/.env.local" "$(FRONTEND_DIR)/.env.local"; \
+		echo "Installed frontend/.env.local from private overlay"; \
 	fi
 	@echo "Done. Run 'make dev' to start."
