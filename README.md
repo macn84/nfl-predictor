@@ -33,6 +33,8 @@ make install
 
 The repo ships with neutral equal-weight defaults so the app runs out of the box. Set your own values in `.env` to apply your tuning.
 
+**Production deployment:** do not store `ADMIN_PASSWORD_HASH`, `SECRET_KEY`, or `ODDS_API_KEY` in a plain file on a remote server. Populate `backend/.env` from your secrets manager of choice (e.g. AWS SSM Parameter Store, Vault) before starting the app.
+
 ## Running
 
 ```bash
