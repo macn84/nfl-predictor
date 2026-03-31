@@ -9,7 +9,8 @@ import { useCovers } from '../../hooks/useCovers'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
-const CURRENT_SEASON = 2024
+const CURRENT_SEASON = 2025
+const AVAILABLE_SEASONS = [2021, 2022, 2023, 2024, 2025]
 
 export type PredictionMode = 'predictions' | 'covers'
 
@@ -67,6 +68,10 @@ export function WeeklyDashboard() {
     setSearchParams({ season: String(season), week: String(week) })
   }
 
+  function handleSeasonSelect(newSeason: number) {
+    setSearchParams({ season: String(newSeason) })
+  }
+
   if (weeksError) {
     return <div className="text-rtc-red p-4 font-mono">Error loading weeks: {weeksError}</div>
   }
@@ -74,9 +79,20 @@ export function WeeklyDashboard() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="font-display text-3xl tracking-wider text-white">
-          Week {selectedWeek} <span className="text-rtc-muted text-xl">·</span> {season}
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="font-display text-3xl tracking-wider text-white">
+            Week {selectedWeek} <span className="text-rtc-muted text-xl">·</span>
+          </h1>
+          <select
+            value={season}
+            onChange={(e) => handleSeasonSelect(Number(e.target.value))}
+            className="bg-rtc-surface border border-rtc-border text-white font-display text-2xl tracking-wider rounded px-2 py-0.5 focus:outline-none focus:border-rtc-green cursor-pointer"
+          >
+            {AVAILABLE_SEASONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex rounded overflow-hidden border border-rtc-border text-sm font-mono">
             <button
