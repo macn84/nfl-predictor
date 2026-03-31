@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     cover_weight_coaching_matchup: float = 0.0  # disabled by default
     cover_weight_weather: float = 0.0           # disabled by default
 
+    # Cover margin calibration — override in backend/.env to keep tuned values private.
+    # Derived from optimiser run: predicted_margin = margin_slope * weighted_sum + margin_intercept
+    margin_slope: float = 0.11420
+    margin_intercept: float = 2.5749
+
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time

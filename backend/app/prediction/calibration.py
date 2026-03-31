@@ -4,9 +4,12 @@ calibration.py - Margin calibration constants for the cover prediction mode.
 Derived from optimiser run against historical seasons.
 predicted_margin = MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT
 
-Update these after each season-end optimiser run.
+Values are loaded from backend/.env (gitignored) via config.py.
+Update MARGIN_SLOPE and MARGIN_INTERCEPT in .env after each season-end optimiser run.
 """
 
-# Calibrated from 2021-2024 season data
-MARGIN_SLOPE = 0.11420
-MARGIN_INTERCEPT = 2.5749
+from app.config import settings
+
+# Re-exported for backwards-compatible imports throughout the codebase.
+MARGIN_SLOPE: float = settings.margin_slope
+MARGIN_INTERCEPT: float = settings.margin_intercept
