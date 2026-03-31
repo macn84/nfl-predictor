@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import header from '../../assets/header.png'
 import type { GameCoverPrediction, GamePrediction } from '../../api/types'
 import { GameCard } from '../../components/GameCard/GameCard'
 import type { SortOption } from '../../components/SortFilterBar/SortFilterBar'
@@ -78,6 +79,9 @@ export function WeeklyDashboard() {
 
   return (
     <div>
+      <div className="mb-6 -mx-6 -mt-6">
+        <img src={header} alt="Roughing the Gambler" className="w-full object-cover max-h-24 object-center" />
+      </div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h1 className="font-display text-3xl tracking-wider text-white">
