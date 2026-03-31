@@ -152,7 +152,9 @@ def calculate(
     if game_date is not None and is_historical(game_date):
         spread = get_spread(home_team, away_team, game_date)
         if spread is None:
-            return _skip(f"no historical spread found for {home_team} vs {away_team} on {game_date}")
+            return _skip(
+                f"no historical spread found for {home_team} vs {away_team} on {game_date}"
+            )
         score = _spread_to_score(spread)
         return FactorResult(
             name="betting_lines",

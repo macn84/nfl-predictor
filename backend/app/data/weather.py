@@ -13,6 +13,8 @@ CSV expected at: data/nfl_stadiums.csv
 from __future__ import annotations
 
 import csv
+import json
+import logging
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -22,8 +24,6 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 from urllib.request import urlopen
-import json
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +199,6 @@ def _build_game_weather(
     idx = _pick_hour_index(times, game_dt)
 
     temp_c_list = hourly.get("temperature_2m", [])
-    precip_list = hourly.get("precipitation", [])
     wind_list   = hourly.get("wind_speed_10m", [])
     wmo_list    = hourly.get("weather_code", [])
 

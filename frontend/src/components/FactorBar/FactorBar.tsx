@@ -13,8 +13,6 @@ const FACTOR_LABELS: Record<string, string> = {
 
 export function FactorBar({ factor }: FactorBarProps) {
   const skipped = factor.weight === 0
-  // score is -100..+100; map to 0..100% bar width with center at 50%
-  const barWidth = skipped ? 0 : Math.round((factor.score + 100) / 2)
   const label = FACTOR_LABELS[factor.name] ?? factor.name
 
   return (

@@ -60,7 +60,6 @@ def _load_season(season: int) -> dict[tuple[str, str, str], float]:
         for row in csv.DictReader(f):
             game_id = row["id"]
             home = _normalise_team(row["home_team"])
-            away_raw = game_id.split("-")
             # home_team column is reliable — use it directly
             team = _normalise_team(row["team"])
             if team == home:
@@ -92,7 +91,6 @@ def _away_from_id(game_id: str, home: str) -> str:
     # id format: YYYY-MM-DD-AWAY-HOME  e.g. 2024-09-29-BUF-KC
     if len(parts) >= 5:
         away_raw = parts[3]
-        home_raw = parts[4]
         # Sometimes home/away order in id doesn't match home_team column
         away = _normalise_team(away_raw)
         return away

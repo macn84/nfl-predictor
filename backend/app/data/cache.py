@@ -114,7 +114,11 @@ def apply_weights(game: dict, weights: dict[str, float]) -> tuple[float, float]:
         confidence is in [50, 100]. Positive weighted_sum favours the home team.
     """
     factors = game["factors"]
-    effective_w = {k: 0.0 if factors[k]["skipped"] else v for k, v in weights.items() if k in factors}
+    effective_w = {
+        k: 0.0 if factors[k]["skipped"] else v
+        for k, v in weights.items()
+        if k in factors
+    }
     total_w = sum(effective_w.values())
     if total_w == 0:
         return 0.0, 50.0

@@ -93,7 +93,9 @@ def get_coach(team: str, game_date: date, include_interim: bool = True) -> Coach
     return non_interim[0] if non_interim else candidates[0]
 
 
-def get_coach_by_season(team: str, season: int, include_interim: bool = False) -> CoachRecord | None:
+def get_coach_by_season(
+    team: str, season: int, include_interim: bool = False
+) -> CoachRecord | None:
     """Return the primary (non-interim) coach for a team in a given season.
 
     When a team had multiple coaches in a season, returns the one who coached

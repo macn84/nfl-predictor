@@ -10,7 +10,13 @@ from datetime import date
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.accuracy import AccuracyResponse, TierAccuracy, WeekAccuracy, _TIER_ORDER, _confidence_tier
+from app.api.accuracy import (
+    _TIER_ORDER,
+    AccuracyResponse,
+    TierAccuracy,
+    WeekAccuracy,
+    _confidence_tier,
+)
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules

@@ -5,10 +5,10 @@ All tests mock load_schedules (and related loaders) so no live network calls
 are made. betting_lines.calculate is also patched to skip the Odds API.
 """
 
-import pandas as pd
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import patch
+
+import pandas as pd
+from fastapi.testclient import TestClient
 
 from app.main import app
 from app.prediction.models import FactorResult

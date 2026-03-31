@@ -2,12 +2,15 @@
 test_engine.py - Integration tests for the prediction engine.
 """
 
-import pytest
+from datetime import date
 from unittest.mock import patch
 
-from datetime import date
-
-from app.prediction.engine import predict, predict_cover, _normalize_weights, _weighted_sum_to_confidence
+from app.prediction.engine import (
+    _normalize_weights,
+    _weighted_sum_to_confidence,
+    predict,
+    predict_cover,
+)
 from app.prediction.models import CoverPredictionResult, FactorResult, PredictionResult
 
 
@@ -82,7 +85,10 @@ class TestPredict:
     def test_factor_names(self, schedules):
         result = predict("KC", "BUF", 2024, schedules=schedules)
         names = {f.name for f in result.factors}
-        assert names == {"recent_form", "home_away", "head_to_head", "betting_lines", "coaching_matchup", "weather"}
+        assert names == {
+            "recent_form", "home_away", "head_to_head",
+            "betting_lines", "coaching_matchup", "weather",
+        }
 
     def test_betting_lines_skipped_when_no_key(self, schedules, monkeypatch):
         monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "")

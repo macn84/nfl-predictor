@@ -56,7 +56,7 @@ test-frontend:
 	cd $(FRONTEND_DIR) && npm test
 
 lint:
-	cd $(BACKEND_DIR) && $(VENV)/bin/ruff check .
+	$(VENV)/bin/ruff check $(BACKEND_DIR)
 	cd $(FRONTEND_DIR) && npm run lint
 
 # Private overlay — requires nfl-predictor-private checked out alongside this repo.

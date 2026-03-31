@@ -22,8 +22,8 @@ from app.prediction.factors import (
     head_to_head,
     home_away,
     recent_form,
+    weather_factor,
 )
-from app.prediction.factors import weather_factor
 from app.prediction.models import CoverPredictionResult, FactorResult, PredictionResult
 
 

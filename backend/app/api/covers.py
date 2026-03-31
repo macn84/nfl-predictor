@@ -109,7 +109,9 @@ def _cover_week_games(
             weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
             cached_spread: float | None = cached.get("spread")
             predicted_margin: float | None = (
-                MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT if cached_spread is not None else None
+                (MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT)
+                if cached_spread is not None
+                else None
             )
             predicted_cover: str | None = (
                 home if (predicted_margin is not None and predicted_margin > cached_spread)  # type: ignore[operator]
@@ -169,7 +171,9 @@ def get_week_covers(
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
-    games = _cover_week_games(season, week, schedules, score_cache=score_cache, authenticated=authenticated)
+    games = _cover_week_games(
+        season, week, schedules, score_cache=score_cache, authenticated=authenticated
+    )
     if not games:
         raise HTTPException(
             status_code=404,

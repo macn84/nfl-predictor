@@ -6,8 +6,9 @@ force_refresh=True to re-download regardless of cache state.
 """
 
 import os
-import pandas as pd
+
 import nflreadpy as nfl
+import pandas as pd
 
 from app.config import settings
 

@@ -8,7 +8,7 @@ POST /api/v1/refresh — re-download schedule, weekly stats, and roster data
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.data.loader import load_schedules, load_weekly_stats, load_rosters
+from app.data.loader import load_rosters, load_schedules, load_weekly_stats
 
 router = APIRouter(prefix="/api/v1")
 
