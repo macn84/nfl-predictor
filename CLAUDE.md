@@ -2,9 +2,11 @@
 
 ## What This Is
 
-Personal NFL game prediction tool. Rules-based engine, weighted factors, confidence scores with drill-down reasoning. Season-long accuracy tracking to evaluate and tune the model. Runs on localhost only — no deployment target.
+Personal NFL game prediction tool. Rules-based engine, weighted factors, confidence scores with drill-down reasoning. Season-long accuracy tracking to evaluate and tune the model. Intended for deployment to AWS EC2 with JWT auth; `AUTH_DISABLED=true` in `backend/.env` for frictionless localhost dev.
 
 Two prediction modes: **winner** (outright result) and **cover** (beats the spread). Each mode has its own weight profile in `config.py`; real tuned values live in `.env` (gitignored — do not read or print them).
+
+Public/authenticated split: unauthenticated users see completed historical weeks only, with no factor drill-down and no weights/scores in API responses. Authenticated users see all weeks, clickable game cards, and a per-game **Lock** button to save the current prediction as the official record before kickoff.
 
 ## Stack
 
@@ -20,13 +22,16 @@ Two prediction modes: **winner** (outright result) and **cover** (beats the spre
 | File | Purpose |
 |------|---------|
 | `main.py` | FastAPI app, router registration |
-| `config.py` | Pydantic `BaseSettings`, loads `.env`. Two weight profiles: `weights` (winner) and `cover_weights` (cover). |
-| `api/predictions.py` | `GET /api/v1/weeks`, `/predictions/{week}`, `/predictions/{week}/{game_id}` |
-| `api/covers.py` | `GET /api/v1/covers/{week}`, `/covers/{week}/{game_id}` — mirrors predictions.py, uses `predict_cover()` |
+| `config.py` | Pydantic `BaseSettings`, loads `.env`. Two weight profiles: `weights` (winner) and `cover_weights` (cover). Auth settings: `admin_username`, `admin_password_hash`, `secret_key`, `auth_disabled`. |
+| `auth/deps.py` | `get_current_user` (raises 401) and `get_optional_user` (returns None). Both short-circuit to `"dev"` when `settings.auth_disabled=True`. |
+| `api/auth.py` | `POST /api/v1/auth/login` (OAuth2 form → JWT), `GET /api/v1/auth/me` (token check) |
+| `api/predictions.py` | `GET /api/v1/weeks` (incl. `completed` flag), `/predictions/{week}` (optional auth — strips `factors` if unauthenticated), `/predictions/{week}/{game_id}` (auth required) |
+| `api/covers.py` | Same auth pattern as predictions.py. `/covers/{week}` strips factors if unauthenticated; `/covers/{week}/{game_id}` requires auth. |
+| `api/lock.py` | `POST /predictions/{week}/{game_id}/lock` (per-game, UI) and `POST /predictions/{week}/lock` (bulk, CLI). Both require auth. Delegates to `cache.lock_game_to_cache()`. |
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/cover_accuracy.py` | `GET /api/v1/accuracy/covers` — same schema as accuracy.py but for cover picks; excludes games with no spread data and pushes |
 | `api/refresh.py` | `POST /api/v1/refresh` — triggers data fetch |
-| `data/cache.py` | Optional score-cache loader. `load_score_cache()` / `apply_weights()` — used by all prediction and accuracy endpoints to serve completed games without re-running the engine. Falls back to live `predict()` calls on a miss or if the cache file is absent. |
+| `data/cache.py` | `load_score_cache()`, `write_score_cache()`, `apply_weights()`, `lock_game_to_cache()`. The lock helper runs `predict()`, writes the cache entry with correct `skipped` detection (from `supporting_data["skipped"]`, not `weight==0`). |
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2021–2026 incl. interim stints. |
 | `data/weather.py` | Game-time weather via Open-Meteo (no key, free). `get_game_weather(home_team, datetime)` auto-routes to archive API (past) or forecast API (≤16 days ahead). Dome games short-circuit — no API call. Requires `data/nfl_stadiums.csv`. |
@@ -55,10 +60,13 @@ Do not simplify this logic — the two cases are intentionally different.
 
 | Path | Purpose |
 |------|---------|
-| `pages/WeeklyDashboard/` | Game cards for a selected week, sort/filter |
-| `pages/GameDetail/` | Factor breakdown for a single game |
+| `context/AuthContext.tsx` | `isAuthenticated`, `username`, `login()`, `logout()`. Token in `localStorage` under `nfl_auth_token`; validates via `GET /auth/me` on mount. |
+| `components/ProtectedRoute/` | Redirects to `/login` if unauthenticated; preserves intended destination in `location.state.from`. |
+| `pages/Login/` | Username + password form → `POST /api/v1/auth/login` (form-encoded) → stores token. |
+| `pages/WeeklyDashboard/` | Game cards for a selected week, sort/filter. Filters week selector to `completed` weeks only when unauthenticated. |
+| `pages/GameDetail/` | Factor breakdown for a single game (auth-gated route via ProtectedRoute) |
 | `pages/SeasonTracker/` | Accuracy vs. actual results (in progress) |
-| `components/GameCard/` | Matchup card with predicted winner + confidence |
+| `components/GameCard/` | Authenticated: clickable Link with Lock button for upcoming games. Unauthenticated: non-clickable div, no lock UI. Shows `LOCKED` badge when `game.locked === true`. |
 | `components/ConfidenceBadge/` | Colour-coded confidence score pill |
 | `components/FactorBar/` | Per-factor contribution bar |
 | `components/WeekSelector/` | Week navigation |
@@ -69,8 +77,8 @@ Do not simplify this logic — the two cases are intentionally different.
 | `hooks/useAccuracy` | Fetches `/accuracy` |
 | `hooks/useCoverAccuracy` | Fetches `/accuracy/covers` |
 | `hooks/useCovers` | Fetches `/covers/{week}` |
-| `api/predictions.ts` | Typed fetch wrappers |
-| `api/types.ts` | Response type definitions |
+| `api/client.ts` | `apiFetch()` — attaches `Authorization: Bearer <token>` from localStorage on every request. |
+| `api/types.ts` | Response type definitions. `GamePrediction` and `GameCoverPrediction` include `locked: boolean`; `WeekSummary` includes `completed: boolean`. |
 
 ### Validation (`validation/`)
 
@@ -97,14 +105,18 @@ Frontend: `http://localhost:5173`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/weeks?season=` | Weeks with game counts |
-| `GET` | `/api/v1/predictions/{week}?season=` | All winner predictions for a week |
-| `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game winner detail |
-| `GET` | `/api/v1/covers/{week}?season=` | All cover predictions for a week |
-| `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail |
+| `GET` | `/api/v1/weeks?season=` | Weeks with game counts + `completed` flag |
+| `GET` | `/api/v1/predictions/{week}?season=` | Winner predictions (`factors: []` if unauthenticated) |
+| `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game winner detail (auth required) |
+| `GET` | `/api/v1/covers/{week}?season=` | Cover predictions (`factors: []` if unauthenticated) |
+| `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail (auth required) |
 | `GET` | `/api/v1/accuracy?season=` | Season winner accuracy summary |
 | `GET` | `/api/v1/accuracy/covers?season=` | Season cover accuracy summary |
 | `POST` | `/api/v1/refresh` | Re-fetch and cache data |
+| `POST` | `/api/v1/auth/login` | OAuth2 form → JWT token |
+| `GET` | `/api/v1/auth/me` | Token validation |
+| `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock single game (auth required) |
+| `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock week (auth required, CLI) |
 
 `game_id` format: `{home}-{away}` lowercase, e.g. `kc-buf`.
 

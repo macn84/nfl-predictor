@@ -6,6 +6,7 @@ import { GameCard } from '../../components/GameCard/GameCard'
 import type { SortOption } from '../../components/SortFilterBar/SortFilterBar'
 import { SortFilterBar } from '../../components/SortFilterBar/SortFilterBar'
 import { WeekSelector } from '../../components/WeekSelector/WeekSelector'
+import { useAuth } from '../../context/AuthContext'
 import { useCovers } from '../../hooks/useCovers'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
@@ -30,6 +31,7 @@ function sortCovers(games: GameCoverPrediction[], sortBy: SortOption): GameCover
 }
 
 export function WeeklyDashboard() {
+  const { isAuthenticated } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const season = Number(searchParams.get('season') ?? CURRENT_SEASON)
   const [sortBy, setSortBy] = useState<SortOption>('confidence')
@@ -37,7 +39,13 @@ export function WeeklyDashboard() {
 
   const { data: weeksData, loading: weeksLoading, error: weeksError } = useWeeks(season)
 
-  const defaultWeek = weeksData?.weeks[0]?.week ?? 1
+  // Public view: only show completed weeks; authenticated: show all
+  const visibleWeeks = useMemo(() => {
+    if (!weeksData) return []
+    return isAuthenticated ? weeksData.weeks : weeksData.weeks.filter((w) => w.completed)
+  }, [weeksData, isAuthenticated])
+
+  const defaultWeek = visibleWeeks[0]?.week ?? 1
   const selectedWeek = Number(searchParams.get('week') ?? defaultWeek)
 
   const {
@@ -133,10 +141,10 @@ export function WeeklyDashboard() {
 
       {weeksLoading ? (
         <div className="text-app-muted mb-4 font-mono text-sm">Loading weeks…</div>
-      ) : weeksData ? (
+      ) : visibleWeeks.length > 0 ? (
         <div className="mb-6">
           <WeekSelector
-            weeks={weeksData.weeks}
+            weeks={visibleWeeks}
             selectedWeek={selectedWeek}
             onSelect={handleWeekSelect}
           />

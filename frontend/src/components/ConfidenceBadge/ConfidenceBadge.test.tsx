@@ -9,16 +9,16 @@ describe('ConfidenceBadge', () => {
 
   it('applies green class for high confidence', () => {
     const { container } = render(<ConfidenceBadge confidence={75} />)
-    expect(container.firstChild).toHaveClass('bg-green-600')
+    expect(container.firstChild).toHaveClass('bg-app-green')
   })
 
   it('applies yellow class for medium confidence', () => {
     const { container } = render(<ConfidenceBadge confidence={60} />)
-    expect(container.firstChild).toHaveClass('bg-yellow-500')
+    expect(container.firstChild).toHaveClass('bg-app-gold')
   })
 
   it('applies red class for low confidence', () => {
     const { container } = render(<ConfidenceBadge confidence={51} />)
-    expect(container.firstChild).toHaveClass('bg-red-600')
+    expect(container.firstChild).toHaveClass('bg-app-red')
   })
 })

@@ -12,8 +12,8 @@ describe('SortFilterBar', () => {
 
   it('highlights active sort option', () => {
     render(<SortFilterBar sortBy="gameday" onSortChange={() => {}} />)
-    expect(screen.getByText('Game Day')).toHaveClass('bg-gray-700')
-    expect(screen.getByText('Confidence')).not.toHaveClass('bg-gray-700')
+    expect(screen.getByText('Game Day')).toHaveClass('bg-app-surface2')
+    expect(screen.getByText('Confidence')).not.toHaveClass('bg-app-surface2')
   })
 
   it('calls onSortChange with correct value', async () => {

@@ -1,13 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { AuthProvider } from '../../context/AuthContext'
 import { fixtureGame } from '../../test/fixtures'
 import { GameCard } from './GameCard'
 
 function renderCard() {
   return render(
-    <MemoryRouter>
-      <GameCard game={fixtureGame} mode="predictions" season={2024} />
-    </MemoryRouter>,
+    <AuthProvider>
+      <MemoryRouter>
+        <GameCard game={fixtureGame} mode="predictions" season={2024} />
+      </MemoryRouter>
+    </AuthProvider>,
   )
 }
 
@@ -28,9 +31,9 @@ describe('GameCard', () => {
     expect(screen.getByText('71.4%')).toBeInTheDocument()
   })
 
-  it('links to the game detail page', () => {
+  it('does not link to game detail when unauthenticated', () => {
     renderCard()
-    const link = screen.getByRole('link')
-    expect(link).toHaveAttribute('href', '/game/1/kc-buf?season=2024')
+    // No token in localStorage → unauthenticated → card is a div, not a link
+    expect(screen.queryByRole('link')).toBeNull()
   })
 })

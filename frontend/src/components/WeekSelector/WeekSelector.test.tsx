@@ -19,7 +19,7 @@ describe('WeekSelector', () => {
       <WeekSelector weeks={fixtureWeeksResponse.weeks} selectedWeek={2} onSelect={() => {}} />,
     )
     const week2Btn = screen.getByText(/Week 2/).closest('button')
-    expect(week2Btn).toHaveClass('bg-blue-600')
+    expect(week2Btn).toHaveClass('bg-app-green')
   })
 
   it('calls onSelect with correct week number on click', async () => {

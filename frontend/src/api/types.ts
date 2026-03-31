@@ -16,11 +16,13 @@ export interface GamePrediction {
   predicted_winner: string
   confidence: number // 0..100
   factors: FactorResult[]
+  locked: boolean
 }
 
 export interface WeekSummary {
   week: number
   game_count: number
+  completed: boolean
 }
 
 export interface WeeksResponse {
@@ -46,6 +48,7 @@ export interface GameCoverPrediction {
   predicted_cover: string | null
   cover_confidence: number // 0..100
   factors: FactorResult[]
+  locked: boolean
 }
 
 export interface WeekCoversResponse {

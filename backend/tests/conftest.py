@@ -6,6 +6,21 @@ All fixtures use synthetic DataFrames — no live API calls in tests.
 
 import pandas as pd
 import pytest
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def disable_auth():
+    """Bypass JWT auth in all tests — mirrors AUTH_DISABLED=true in dev.
+
+    Tests that specifically want to verify auth behaviour should override this
+    by patching settings.auth_disabled back to False inside the test body.
+    """
+    with patch("app.auth.deps.settings") as mock_settings:
+        mock_settings.auth_disabled = True
+        mock_settings.secret_key = "test-key"
+        mock_settings.access_token_expire_minutes = 60
+        yield
 
 
 @pytest.fixture

@@ -2,16 +2,18 @@
 covers.py - API endpoints for spread-cover predictions.
 
 GET /api/v1/covers/{week}?season=           — all cover predictions for a week
-GET /api/v1/covers/{week}/{game_id}?season= — single game cover detail
+GET /api/v1/covers/{week}/{game_id}?season= — single game cover detail (auth required)
 """
 
 import math
 from datetime import date
+from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
@@ -41,6 +43,7 @@ class GameCoverPrediction(BaseModel):
     predicted_cover: str | None
     cover_confidence: float
     factors: list[FactorResult]
+    locked: bool  # True when prediction is the official prediction of record
 
 
 class WeekCoversResponse(BaseModel):
@@ -59,21 +62,20 @@ def _game_id(home_team: str, away_team: str) -> str:
 
 
 def _cover_week_games(
-    season: int, week: int, schedules: pd.DataFrame,
+    season: int,
+    week: int,
+    schedules: pd.DataFrame,
     score_cache: dict[str, dict] | None = None,
+    authenticated: bool = False,
 ) -> list[GameCoverPrediction]:
     """Run the cover prediction engine for every game in a given week.
-
-    For completed games (final scores recorded), uses score_cache when available
-    to skip live factor computation. Upcoming games always run predict_cover() live.
-    The detail endpoint bypasses this and always calls predict_cover() for full
-    supporting_data.
 
     Args:
         season: NFL season year.
         week: Week number.
-        schedules: Pre-loaded schedules DataFrame (must cover season - 3..season).
+        schedules: Pre-loaded schedules DataFrame (must cover season-3..season).
         score_cache: Pre-loaded score cache, or None to always call predict_cover().
+        authenticated: Whether the caller has a valid auth token.
 
     Returns:
         List of GameCoverPrediction objects ordered as they appear in the schedule.
@@ -100,7 +102,9 @@ def _cover_week_games(
             pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
         )
         cache_key = f"{home}-{away}-{game_date}" if game_date else None
-        if is_completed and score_cache is not None and cache_key and cache_key in score_cache:
+        in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
+
+        if in_cache and score_cache is not None and cache_key is not None:
             cached = score_cache[cache_key]
             weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
             cached_spread: float | None = cached.get("spread")
@@ -114,6 +118,7 @@ def _cover_week_games(
             )
             spread = cached_spread
             factors: list[FactorResult] = []
+            locked = not is_completed
         else:
             pred: CoverPredictionResult = predict_cover(
                 home, away, season, schedules=schedules, game_date=game_date
@@ -122,7 +127,8 @@ def _cover_week_games(
             predicted_margin = pred.predicted_margin
             predicted_cover = pred.predicted_cover
             cover_confidence = pred.cover_confidence
-            factors = pred.factors
+            factors = pred.factors if authenticated else []
+            locked = False
 
         results.append(
             GameCoverPrediction(
@@ -137,6 +143,7 @@ def _cover_week_games(
                 predicted_cover=predicted_cover,
                 cover_confidence=cover_confidence,
                 factors=factors,
+                locked=locked,
             )
         )
     return results
@@ -151,12 +158,18 @@ def _cover_week_games(
 def get_week_covers(
     week: int,
     season: int = Query(..., description="NFL season year, e.g. 2024"),
+    current_user: Optional[str] = Depends(get_optional_user),
 ) -> WeekCoversResponse:
-    """Return cover predictions for every game in a given week."""
+    """Return cover predictions for every game in a given week.
+
+    - Unauthenticated: factors are stripped from all responses.
+    - Authenticated: factors included.
+    """
+    authenticated = current_user is not None
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
-    games = _cover_week_games(season, week, schedules, score_cache=score_cache)
+    games = _cover_week_games(season, week, schedules, score_cache=score_cache, authenticated=authenticated)
     if not games:
         raise HTTPException(
             status_code=404,
@@ -170,8 +183,12 @@ def get_game_cover(
     week: int,
     game_id: str,
     season: int = Query(..., description="NFL season year, e.g. 2024"),
+    current_user: str = Depends(get_current_user),
 ) -> GameCoverPrediction:
-    """Return the cover prediction for a single game identified by '{home}-{away}' (lowercase)."""
+    """Return the full cover prediction (with factor drill-down) for a single game.
+
+    Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
+    """
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
@@ -189,6 +206,15 @@ def get_game_cover(
                 game_date = date.fromisoformat(gameday)
             except ValueError:
                 pass
+
+        cache_key = f"{home}-{away}-{game_date}" if game_date else None
+        score_cache = load_score_cache()
+        is_completed = (
+            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
+        )
+        in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
+        locked = in_cache and not is_completed
+
         pred: CoverPredictionResult = predict_cover(
             home, away, season, schedules=schedules, game_date=game_date
         )
@@ -204,6 +230,7 @@ def get_game_cover(
             predicted_cover=pred.predicted_cover,
             cover_confidence=pred.cover_confidence,
             factors=pred.factors,
+            locked=locked,
         )
     raise HTTPException(
         status_code=404,

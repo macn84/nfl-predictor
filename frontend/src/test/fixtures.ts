@@ -9,6 +9,7 @@ export const fixtureGame: GamePrediction = {
   away_team: 'BUF',
   predicted_winner: 'KC',
   confidence: 71.4,
+  locked: false,
   factors: [
     {
       name: 'recent_form',
@@ -44,9 +45,9 @@ export const fixtureGame: GamePrediction = {
 export const fixtureWeeksResponse: WeeksResponse = {
   season: 2024,
   weeks: [
-    { week: 1, game_count: 16 },
-    { week: 2, game_count: 16 },
-    { week: 3, game_count: 16 },
+    { week: 1, game_count: 16, completed: true },
+    { week: 2, game_count: 16, completed: true },
+    { week: 3, game_count: 16, completed: false },
   ],
 }
 

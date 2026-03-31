@@ -26,6 +26,10 @@ make install
 | `COVER_WEIGHT_COACHING_MATCHUP` / `COVER_WEIGHT_WEATHER` | Cover-mode coaching and weather weights |
 | `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `H2H_GAMES` | Factor calibration parameters |
 | `COACHING_MIN_GAMES` | Minimum games in a coaching record before that sub-signal is used (default `3`) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` | Login credentials — `ADMIN_PASSWORD_HASH` is a bcrypt hash (see `.env.example` for generation command) |
+| `SECRET_KEY` | JWT signing key — generate with `openssl rand -hex 32` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime in minutes (default `10080` = 7 days) |
+| `AUTH_DISABLED` | Set to `true` for local dev to bypass all auth checks (never set on a public server) |
 
 The repo ships with neutral equal-weight defaults so the app runs out of the box. Set your own values in `.env` to apply your tuning.
 
@@ -43,14 +47,20 @@ Or from VS Code: **Cmd/Ctrl+Shift+B** (default build task) starts both servers, 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/weeks?season=` | List weeks with game counts |
+| `GET` | `/api/v1/weeks?season=` | List weeks with game counts and completion status |
 | `GET` | `/api/v1/predictions/{week}?season=` | All winner predictions for a week |
-| `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game winner detail |
+| `GET` | `/api/v1/predictions/{week}/{game_id}?season=` | Single game winner detail (auth required) |
 | `GET` | `/api/v1/covers/{week}?season=` | All cover predictions for a week |
-| `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail |
+| `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail (auth required) |
 | `GET` | `/api/v1/accuracy?season=` | Season winner accuracy vs. actual results |
 | `GET` | `/api/v1/accuracy/covers?season=` | Season cover accuracy vs. actual results |
 | `POST` | `/api/v1/refresh` | Re-download and cache data for a season |
+| `POST` | `/api/v1/auth/login` | Exchange username + password for a JWT token |
+| `GET` | `/api/v1/auth/me` | Validate token and return current username |
+| `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock a single game prediction as the prediction of record (auth required) |
+| `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock all games in a week (auth required, CLI use) |
+
+**Public vs authenticated:** Unauthenticated requests to the list endpoints (`/predictions/{week}`, `/covers/{week}`) return all predictions but with `factors: []` — factor weights and scores are stripped. The week list (`/weeks`) returns a `completed` flag per week; unauthenticated clients should display only completed weeks. Detail endpoints require a valid token.
 
 `game_id` format is `{home}-{away}` in lowercase, e.g. `kc-buf`.
 
@@ -166,14 +176,19 @@ backend/
 ├── app/
 │   ├── main.py                # FastAPI entry point
 │   ├── config.py              # settings and factor weights (both modes)
+│   ├── auth/
+│   │   └── deps.py            # JWT creation + FastAPI auth dependencies (get_current_user, get_optional_user)
 │   ├── api/
 │   │   ├── predictions.py     # GET /api/v1/weeks, /predictions/{week}[/{game_id}]
 │   │   ├── covers.py          # GET /api/v1/covers/{week}[/{game_id}]
+│   │   ├── auth.py            # POST /api/v1/auth/login, GET /api/v1/auth/me
+│   │   ├── lock.py            # POST /api/v1/predictions/{week}[/{game_id}]/lock
 │   │   ├── accuracy.py        # GET /api/v1/accuracy
 │   │   ├── cover_accuracy.py  # GET /api/v1/accuracy/covers
 │   │   └── refresh.py         # POST /api/v1/refresh
 │   ├── data/
 │   │   ├── loader.py          # nflreadpy wrappers with CSV caching
+│   │   ├── cache.py           # score cache load/write + lock_game_to_cache()
 │   │   ├── coaches.py         # head coach lookup from static CSV
 │   │   ├── weather.py         # game-time weather via Open-Meteo
 │   │   └── spreads.py         # historical closing spreads from data/spreads/ CSVs
@@ -188,10 +203,16 @@ frontend/
 ├── src/
 │   ├── pages/
 │   │   ├── WeeklyDashboard/   # game cards for a selected week
-│   │   ├── GameDetail/        # factor breakdown for a single game
+│   │   ├── GameDetail/        # factor breakdown for a single game (auth required)
+│   │   ├── Login/             # username + password login form
 │   │   └── SeasonTracker/     # accuracy vs. actual results
-│   ├── components/            # ConfidenceBadge, FactorBar, GameCard, etc.
-│   ├── hooks/                 # usePredictions, useWeeks, useCovers, useAccuracy, useCoverAccuracy, …
+│   ├── components/
+│   │   ├── ProtectedRoute/    # redirects to /login if unauthenticated
+│   │   ├── GameCard/          # matchup card; lock button when authenticated + upcoming
+│   │   └── …                  # ConfidenceBadge, FactorBar, WeekSelector, etc.
+│   ├── context/
+│   │   └── AuthContext.tsx    # token storage, isAuthenticated, login(), logout()
+│   ├── hooks/                 # usePredictions, useWeeks, useCovers, useAccuracy, …
 │   └── api/                   # typed fetch wrappers + response types
 └── package.json
 data/                          # CSV cache + static datasets (gitignored)
