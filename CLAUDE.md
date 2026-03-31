@@ -21,8 +21,9 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 
 | File | Purpose |
 |------|---------|
-| `main.py` | FastAPI app, router registration |
-| `config.py` | Pydantic `BaseSettings`, loads `.env`. Two weight profiles: `weights` (winner) and `cover_weights` (cover). Auth settings: `admin_username`, `admin_password_hash`, `secret_key`, `auth_disabled`. |
+| `main.py` | FastAPI app, lifespan (starts/stops scheduler), router registration |
+| `config.py` | Pydantic `BaseSettings`, loads `.env`. Two weight profiles: `weights` (winner) and `cover_weights` (cover). Auth settings: `admin_username`, `admin_password_hash`, `secret_key`, `auth_disabled`. Scheduler times: `scheduler_{day}_hour/minute` (8 fields, ET). |
+| `scheduler.py` | APScheduler `BackgroundScheduler` with four cron jobs (Mon/Thu/Sat/Sun ET). Core logic in `run_scheduled_refresh(backfill=False)`: re-downloads data, backfills score cache for all completed games, pre-populates current week. Also called directly by the run-now endpoint. Note: if a UI lock and a scheduler run overlap, the scheduler's final `write_score_cache()` wins — acceptable trade-off. |
 | `auth/deps.py` | `get_current_user` (raises 401) and `get_optional_user` (returns None). Both short-circuit to `"dev"` when `settings.auth_disabled=True`. |
 | `api/auth.py` | `POST /api/v1/auth/login` (OAuth2 form → JWT), `GET /api/v1/auth/me` (token check) |
 | `api/predictions.py` | `GET /api/v1/weeks` (incl. `completed` flag), `/predictions/{week}` (optional auth — strips `factors` if unauthenticated), `/predictions/{week}/{game_id}` (auth required) |
@@ -31,6 +32,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/cover_accuracy.py` | `GET /api/v1/accuracy/covers` — same schema as accuracy.py but for cover picks; excludes games with no spread data and pushes |
 | `api/refresh.py` | `POST /api/v1/refresh` — triggers data fetch |
+| `api/scheduler.py` | `POST /api/v1/scheduler/run-now` — manually trigger the scheduled job (auth required). Optional `?backfill=true` to force full season recompute. |
 | `data/cache.py` | `load_score_cache()`, `write_score_cache()`, `apply_weights()`, `lock_game_to_cache()`. The lock helper runs `predict()`, writes the cache entry with correct `skipped` detection (from `supporting_data["skipped"]`, not `weight==0`). |
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2021–2026 incl. interim stints. |
@@ -117,6 +119,7 @@ Frontend: `http://localhost:5173`
 | `GET` | `/api/v1/auth/me` | Token validation |
 | `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock single game (auth required) |
 | `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock week (auth required, CLI) |
+| `POST` | `/api/v1/scheduler/run-now?backfill=` | Manually trigger scheduled refresh (auth required) |
 
 `game_id` format: `{home}-{away}` lowercase, e.g. `kc-buf`.
 

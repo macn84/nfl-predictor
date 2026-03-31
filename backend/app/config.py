@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     # The Odds API — optional; betting lines factor is skipped if absent
     odds_api_key: str = ""
 
+    # Scheduler — times are in US Eastern (ET). Override in backend/.env.
+    # Jobs run Mon/Thu/Sat/Sun to refresh data and pre-populate the score cache.
+    scheduler_monday_hour: int = 23
+    scheduler_monday_minute: int = 0
+    scheduler_thursday_hour: int = 10
+    scheduler_thursday_minute: int = 0
+    scheduler_saturday_hour: int = 10
+    scheduler_saturday_minute: int = 0
+    scheduler_sunday_hour: int = 7
+    scheduler_sunday_minute: int = 0
+
     # Auth — set in backend/.env. Use AUTH_DISABLED=true for local dev.
     admin_username: str = ""
     admin_password_hash: str = ""          # bcrypt hash; generate with passlib
