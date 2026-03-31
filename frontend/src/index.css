@@ -1,3 +1,24 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    /* Subtle football field grid texture */
+    background-image:
+      linear-gradient(rgba(0, 200, 81, 0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 200, 81, 0.012) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  ::selection {
+    background: #00c851;
+    color: #000;
+  }
+
+  ::-webkit-scrollbar            { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track      { background: #080b14; }
+  ::-webkit-scrollbar-thumb      { background: #007e33; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover{ background: #00c851; }
+}

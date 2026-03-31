@@ -24,15 +24,15 @@ export function GameCard({ game, mode, season }: GameCardProps) {
   return (
     <Link
       to={`/game/${week}/${game_id}?season=${season}`}
-      className="block bg-gray-800 rounded-lg p-4 hover:bg-gray-750 hover:ring-1 hover:ring-blue-500 transition-all"
+      className="block bg-rtc-surface rounded-lg p-4 hover:bg-rtc-surface2 hover:ring-1 hover:ring-rtc-green border border-rtc-border transition-all"
     >
       <div className="flex justify-between items-start mb-3">
         <div>
           <div className="text-lg font-semibold">
-            {away_team} <span className="text-gray-400 text-sm font-normal">@</span> {home_team}
+            {away_team} <span className="text-rtc-muted text-sm font-normal">@</span> {home_team}
           </div>
           {gameday && (
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-xs text-rtc-dim mt-0.5 font-mono">
               {new Date(gameday).toLocaleDateString('en-US', {
                 weekday: 'short',
                 month: 'short',
@@ -45,8 +45,8 @@ export function GameCard({ game, mode, season }: GameCardProps) {
       </div>
 
       {mode === 'predictions' ? (
-        <div className="text-sm text-gray-400">
-          Pick: <span className="font-semibold text-gray-100">
+        <div className="text-sm text-rtc-muted">
+          Pick: <span className="font-semibold text-rtc-text">
             {(game as GamePrediction).predicted_winner}
           </span>
         </div>
@@ -54,9 +54,8 @@ export function GameCard({ game, mode, season }: GameCardProps) {
         <CoverStats game={game as GameCoverPrediction} />
       )}
 
-      {/* LLM narrative placeholder — replace with API call when wired */}
-      <div className="mt-3 pt-3 border-t border-gray-700">
-        <p className="text-xs text-gray-600 italic">
+      <div className="mt-3 pt-3 border-t border-rtc-border">
+        <p className="text-xs text-rtc-dim italic font-mono">
           AI summary coming soon…
         </p>
       </div>
@@ -68,21 +67,21 @@ function CoverStats({ game }: { game: GameCoverPrediction }) {
   const { spread, predicted_cover, predicted_margin, home_team } = game
 
   return (
-    <div className="text-sm text-gray-400 space-y-0.5">
+    <div className="text-sm text-rtc-muted space-y-0.5">
       {spread !== null ? (
         <div>
-          Line: <span className="font-semibold text-gray-100">
+          Line: <span className="font-semibold text-rtc-text">
             {formatSpread(home_team, spread)}
           </span>
         </div>
       ) : (
-        <div className="text-gray-600">No line available</div>
+        <div className="text-rtc-dim">No line available</div>
       )}
       {predicted_cover !== null && (
         <div>
-          Cover: <span className="font-semibold text-gray-100">{predicted_cover}</span>
+          Cover: <span className="font-semibold text-rtc-text">{predicted_cover}</span>
           {predicted_margin !== null && (
-            <span className="text-gray-500 ml-1">
+            <span className="text-rtc-dim ml-1">
               (by {Math.abs(predicted_margin).toFixed(1)})
             </span>
           )}

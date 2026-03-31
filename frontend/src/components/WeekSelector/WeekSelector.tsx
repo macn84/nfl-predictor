@@ -13,10 +13,10 @@ export function WeekSelector({ weeks, selectedWeek, onSelect }: WeekSelectorProp
         <button
           key={week}
           onClick={() => onSelect(week)}
-          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+          className={`px-3 py-1 rounded text-sm font-medium font-mono transition-colors ${
             week === selectedWeek
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              ? 'bg-rtc-green text-black'
+              : 'bg-rtc-surface text-rtc-muted border border-rtc-border hover:bg-rtc-surface2 hover:text-rtc-text'
           }`}
         >
           Week {week}

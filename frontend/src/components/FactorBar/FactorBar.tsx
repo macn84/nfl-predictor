@@ -20,24 +20,24 @@ export function FactorBar({ factor }: FactorBarProps) {
   return (
     <div className="mb-4">
       <div className="flex justify-between text-sm mb-1">
-        <span className="font-medium text-gray-200">{label}</span>
-        <span className="text-gray-400">
+        <span className="font-medium text-rtc-text">{label}</span>
+        <span className="text-rtc-muted font-mono">
           {skipped ? 'skipped' : `${factor.score > 0 ? '+' : ''}${factor.score.toFixed(1)}`}
         </span>
       </div>
-      <div className="relative h-3 bg-gray-700 rounded-full overflow-hidden">
+      <div className="relative h-3 bg-rtc-surface2 rounded-full overflow-hidden border border-rtc-border">
         {/* center line */}
-        <div className="absolute top-0 bottom-0 left-1/2 w-px bg-gray-500" />
+        <div className="absolute top-0 bottom-0 left-1/2 w-px bg-rtc-border" />
         {!skipped && (
           <div
-            className={`absolute top-0 bottom-0 ${factor.score >= 0 ? 'left-1/2 bg-green-500' : 'right-1/2 bg-red-500'}`}
+            className={`absolute top-0 bottom-0 ${factor.score >= 0 ? 'left-1/2 bg-rtc-green' : 'right-1/2 bg-rtc-red'}`}
             style={{ width: `${Math.abs(factor.score) / 2}%` }}
             data-testid="factor-bar-fill"
           />
         )}
       </div>
       {!skipped && (
-        <div className="text-xs text-gray-500 mt-1">
+        <div className="text-xs text-rtc-dim mt-1 font-mono">
           weight {(factor.weight * 100).toFixed(0)}% · contribution{' '}
           {factor.contribution.toFixed(1)}
         </div>
