@@ -270,11 +270,14 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             is_completed = pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
             if is_completed:
                 continue  # already handled above
+            # Always evict the existing entry so each scheduler run fetches fresh
+            # odds (Odds API) and weather (Open-Meteo) for upcoming games.
+            cache_key = f"{home}-{away}-{game_date}"
+            existing.pop(cache_key, None)
             try:
-                added = _add_to_cache(home, away, season, game_date, schedules, existing)
-                if added:
-                    week_new += 1
-                    newly_cached += 1
+                _add_to_cache(home, away, season, game_date, schedules, existing)
+                week_new += 1
+                newly_cached += 1
             except Exception:
                 logger.warning(
                     "Failed to cache upcoming game %s vs %s (%s)",
@@ -284,8 +287,9 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                     exc_info=True,
                 )
 
-        if week_new:
-            logger.info("Current week %d: %d upcoming games pre-cached", current_week, week_new)
+        logger.info(
+            "Current week %d: %d upcoming games refreshed", current_week, week_new
+        )
 
     # ------------------------------------------------------------------
     # Step 5: Write updated cache to disk
