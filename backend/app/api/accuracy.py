@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.config import settings
+from app.data import accuracy_cache
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.prediction.engine import predict
@@ -89,6 +90,10 @@ def get_accuracy(
     Returns:
         AccuracyResponse with overall accuracy and breakdowns by week and tier.
     """
+    cached = accuracy_cache.get(season, "winner")
+    if cached is not None:
+        return cached
+
     seasons = list(range(season - 3, season + 1))
     schedules = load_schedules(seasons)
     season_games = schedules[schedules["season"] == season]
@@ -167,7 +172,7 @@ def get_accuracy(
         if tier_stats[tier]["total"] > 0
     ]
 
-    return AccuracyResponse(
+    result = AccuracyResponse(
         season=season,
         correct=total_correct,
         total=total_games,
@@ -175,3 +180,5 @@ def get_accuracy(
         by_week=by_week,
         by_tier=by_tier,
     )
+    accuracy_cache.set(season, "winner", result)
+    return result

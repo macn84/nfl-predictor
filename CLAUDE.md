@@ -158,9 +158,9 @@ No auth, no key. Archive endpoint for past games; forecast endpoint for games �
 
 ## What's Not Done Yet
 
-- `SeasonTracker` page is scaffolded — accuracy hooks exist but UI wiring is incomplete
-- `/accuracy` and `/accuracy/covers` re-run predictions live on each call (slow for full seasons — caching is a future improvement)
-- Factor weights are only tunable via `backend/.env`, no UI
-- No mobile-responsive design
-- LLM narrative generation (out of scope for v1)
-- `coaching_matchup` and `weather` factors are built and wired but **disabled by default** (`weight=0.0`). Enable by setting the relevant `WEIGHT_*` / `COVER_WEIGHT_*` vars in `backend/.env`.
+- `/accuracy` and `/accuracy/covers` are cached in-memory per season; cache invalidates on `/refresh` or any lock. If weight tuning changes `.env` without a refresh, restart the backend to clear stale results.
+
+## Roadmap
+
+- **LLM narrative generation** — hook into an LLM to generate plain-English game previews/summaries per prediction
+- **AWS deployment** — migrate to S3 (static frontend) + EC2 (backend); JWT auth already in place for public hosting

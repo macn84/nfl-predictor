@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user
+from app.data import accuracy_cache
 from app.data.cache import lock_game_to_cache
 from app.data.loader import load_schedules
 from app.prediction.models import FactorResult
@@ -95,6 +96,7 @@ def lock_game_prediction(
         predicted_winner, confidence, factors = lock_game_to_cache(
             home, away, season, game_date, schedules
         )
+        accuracy_cache.clear()
         return LockResponse(
             game_id=game_id,
             season=season,
@@ -133,6 +135,7 @@ def lock_week_predictions(
         )
 
     results: list[LockResponse] = []
+    accuracy_cache.clear()
     for _, row in week_games.iterrows():
         home = str(row["home_team"])
         away = str(row["away_team"])
