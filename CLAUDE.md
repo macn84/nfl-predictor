@@ -37,7 +37,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2015–2026 incl. interim stints. |
 | `data/weather.py` | Game-time weather via Open-Meteo (no key, free). `get_game_weather(home_team, datetime)` auto-routes to archive API (past) or forecast API (≤16 days ahead). Dome games short-circuit — no API call. Requires `data/nfl_stadiums.csv`. Stadium lookup is season-aware: `get_stadium_for_team(team, season)` picks the correct row when a team has moved (e.g. LAR, MIN, LV). |
-| `data/spreads.py` | Historical closing-line spreads loader. Reads nflverse CSVs from `data/spreads/nfl_{season}_spreads.csv` (2021–2025). `get_spread(home, away, date)` returns home-team spread or `None`. |
+| `data/spreads.py` | Historical closing-line spreads loader. Reads nflverse CSVs from `data/spreads/nfl_{season}_spreads.csv` (2015–2025). `get_spread(home, away, date)` returns home-team spread or `None`. |
 | `prediction/engine.py` | `predict()` → `PredictionResult`; `predict_cover()` → `CoverPredictionResult`. Both call shared `_run_factors(weights)`. |
 | `prediction/models.py` | Pydantic types: `FactorResult`, `PredictionResult`, `CoverPredictionResult` |
 | `prediction/calibration.py` | `MARGIN_SLOPE` / `MARGIN_INTERCEPT` constants for cover margin calibration. Update after each season-end optimiser run. |
@@ -87,7 +87,7 @@ Do not simplify this logic — the two cases are intentionally different.
 | File | Purpose |
 |------|---------|
 | `backtest.py` | CLI: runs completed season games through the engine with `game_date` gating (no leakage). `--mode winner\|cover`, `--weeks 1-9`, `--verbose`. Uses `data/score_cache.json` when present for fast weight-sweep mode. `--json` flag emits `AccuracyResponse`-shaped JSON for piping. |
-| `optimise_weights.py` | Grid-searches optimal factor weights. Phases: build score cache → calibrate margin via linear regression → grid search all weight combos (recent_form fixed at 1.0, 5 others vary) → validate top-5 on out-of-sample seasons. Default: train 2021–2023, val 2024–2025. Uses `confidence_weighted_score()` with precision constraint. Writes `data/optimiser_results.json`. Flags: `--rebuild-cache`, `--dry-run`, `--train-seasons`, `--val-seasons`, `--step`. |
+| `optimise_weights.py` | Grid-searches optimal factor weights. Phases: build score cache → calibrate margin via linear regression → grid search all weight combos (recent_form fixed at 1.0, 5 others vary) → validate top-5 on out-of-sample seasons. Default: train 2015–2022, val 2023. Uses `confidence_weighted_score()` with precision constraint. Writes `data/optimiser_results.json`. Flags: `--rebuild-cache`, `--dry-run`, `--train-seasons`, `--val-seasons`, `--step`. |
 | `smoke_test.py` | Quick end-to-end sanity check: loads real data, runs winner + cover prediction, prints factor table. No assertions. Flags: `--home`, `--away`, `--season`, `--date`. |
 
 ### Dev Tooling
@@ -139,7 +139,7 @@ No auth, no key. Archive endpoint for past games; forecast endpoint for games �
 ### Static CSVs (`data/`)
 - `nfl_coaches_full_dataset.csv` — head coaches 2015–2026, columns: GUID, Head Coach Full Name, Team Abbreviation, NFL Team Full Name, Season, Is Interim, Start Date, End Date
 - `nfl_stadiums.csv` — per-team stadium metadata; multiple rows per team where applicable, keyed by Season Start / Season End (9999 = current). Covers 2015–present.
-- `spreads/nfl_{season}_spreads.csv` — historical closing spreads for 2021–2025 seasons (nflverse format); two rows per game (one per team), keyed on `id`, `home_team`, `team`, `point`, `commence_time`
+- `spreads/nfl_{season}_spreads.csv` — historical closing spreads for 2015–2025 seasons (nflverse format); two rows per game (one per team), keyed on `id`, `home_team`, `team`, `point`, `commence_time`
 - `score_cache.json` (gitignored, optional) — pre-computed factor scores for completed games. When present, `backtest.py` and all API endpoints use it to skip live engine calls — useful for rapid weight sweeps and fast API responses. See `claude-local.md` for format details.
 
 ## Code Conventions
