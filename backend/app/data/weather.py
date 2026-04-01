@@ -8,6 +8,8 @@ Historical data:  Open-Meteo Archive API (free, no key, back to 1940)
 Forecast data:    Open-Meteo Forecast API (free, no key, up to 16 days ahead)
 
 CSV expected at: data/nfl_stadiums.csv
+Teams that have relocated (LAR, MIN, LV, LAC, ATL, ...) have multiple rows;
+the correct stadium is selected via Season Start / Season End columns.
 """
 
 from __future__ import annotations
@@ -88,6 +90,8 @@ class StadiumRecord:
     longitude: float
     is_dome: bool
     surface_type: str
+    season_start: int
+    season_end: int  # 9999 = current
 
 
 @dataclass(frozen=True)
@@ -112,18 +116,25 @@ class GameWeather:
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
-def _load_stadiums() -> dict[str, StadiumRecord]:
+def _load_stadiums() -> list[StadiumRecord]:
+    """Load all stadium records from CSV (cached after first call).
+
+    Returns:
+        List of StadiumRecord, one per team-era row.
+
+    Raises:
+        FileNotFoundError: If nfl_stadiums.csv is missing.
+    """
     if not STADIUMS_CSV.exists():
         raise FileNotFoundError(
             f"Stadiums CSV not found at {STADIUMS_CSV}. "
             "Place nfl_stadiums.csv in the data/ directory."
         )
-    records: dict[str, StadiumRecord] = {}
+    records: list[StadiumRecord] = []
     with STADIUMS_CSV.open(newline="") as f:
         for row in csv.DictReader(f):
-            team = row["Team Abbreviation"].strip()
-            records[team] = StadiumRecord(
-                team=team,
+            records.append(StadiumRecord(
+                team=row["Team Abbreviation"].strip(),
                 team_full=row["Team Full Name"].strip(),
                 stadium_name=row["Stadium Name"].strip(),
                 city=row["City"].strip(),
@@ -132,27 +143,61 @@ def _load_stadiums() -> dict[str, StadiumRecord]:
                 longitude=float(row["Longitude"]),
                 is_dome=row["Is Dome"].strip().lower() == "yes",
                 surface_type=row["Surface Type"].strip(),
-            )
+                season_start=int(row["Season Start"]),
+                season_end=int(row["Season End"]),
+            ))
     return records
 
 
-def get_stadium(team: str) -> StadiumRecord:
-    """Return the StadiumRecord for a team abbreviation.
+def _game_date_to_season(game_date: date) -> int:
+    """Map a calendar date to an NFL season year.
+
+    January and February games belong to the previous calendar year's season
+    (e.g. 2024-01-14 → 2023 season).
 
     Args:
-        team: NFL team abbreviation (e.g. "KC", "BUF").
+        game_date: The date of the game.
+
+    Returns:
+        Four-digit NFL season year.
+    """
+    return game_date.year - 1 if game_date.month < 3 else game_date.year
+
+
+def get_stadium_for_team(team: str, season: int) -> StadiumRecord:
+    """Return the stadium a team played in for a given season.
+
+    Args:
+        team: NFL team abbreviation (e.g. "KC", "LAR").
+        season: NFL season year, e.g. 2016.
+
+    Returns:
+        Matching StadiumRecord.
 
     Raises:
-        KeyError: If the team abbreviation is not in the stadiums CSV.
+        KeyError: If no record covers this team/season combination.
     """
-    stadiums = _load_stadiums()
-    team = team.upper()
     # Normalise nflverse abbreviation variants
     _ALIASES: dict[str, str] = {"LA": "LAR"}
-    team = _ALIASES.get(team, team)
-    if team not in stadiums:
-        raise KeyError(f"Team '{team}' not found in stadiums dataset.")
-    return stadiums[team]
+    team = _ALIASES.get(team.upper(), team.upper())
+
+    records = _load_stadiums()
+    matches = [
+        r for r in records
+        if r.team == team and r.season_start <= season <= r.season_end
+    ]
+    if not matches:
+        raise KeyError(
+            f"No stadium record for team={team!r} in season={season}. "
+            "Check nfl_stadiums.csv covers this era."
+        )
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple stadium records for %s season %d — using most recent: %s",
+            team, season, [m.stadium_name for m in matches],
+        )
+        matches.sort(key=lambda r: r.season_start, reverse=True)
+    return matches[0]
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +295,9 @@ def get_game_weather(
     Returns:
         A GameWeather instance.
     """
-    stadium = get_stadium(home_team)
+    game_date = game_datetime.date() if isinstance(game_datetime, datetime) else game_datetime
+    season = _game_date_to_season(game_date)
+    stadium = get_stadium_for_team(home_team, season)
 
     # Dome — no API call needed
     if stadium.is_dome:
@@ -266,7 +313,6 @@ def get_game_weather(
 
     # Determine archive vs forecast
     today = datetime.now(timezone.utc).date()
-    game_date = game_datetime.date() if isinstance(game_datetime, datetime) else game_datetime
     use_archive = game_date < today
 
     base_params = {
