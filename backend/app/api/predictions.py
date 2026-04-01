@@ -176,7 +176,7 @@ def list_weeks(season: int = Query(..., description="NFL season year, e.g. 2024"
     has a recorded final score. Unauthenticated callers should filter to completed
     weeks only; the frontend enforces this via the auth context.
     """
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     season_games = schedules[schedules["season"] == season]
     if season_games.empty:
@@ -207,7 +207,7 @@ def get_week_predictions(
       auto-locked to the cache on first call after kickoff.
     """
     authenticated = current_user is not None
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
     games = _predict_week_games(
@@ -236,7 +236,7 @@ def get_game_prediction(
     Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
     Always runs predict() live to return full supporting_data for the detail view.
     """
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
 

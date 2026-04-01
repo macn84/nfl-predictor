@@ -73,7 +73,7 @@ def lock_game_prediction(
 
     game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
     """
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
 
@@ -125,7 +125,7 @@ def lock_week_predictions(
 
     Calls lock_game for every game in the week. Existing locks are overwritten.
     """
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
     if week_games.empty:

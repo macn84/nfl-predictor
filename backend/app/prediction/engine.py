@@ -160,7 +160,7 @@ def predict(
     from app.config import settings
 
     if schedules is None:
-        seasons = list(range(season - 3, season + 1))
+        seasons = list(range(2015, season + 1))
         schedules = load_schedules(seasons)
 
     normalized = _run_factors(home_team, away_team, season, schedules, game_date, settings.weights)
@@ -205,7 +205,7 @@ def predict_cover(
     from app.config import settings
 
     if schedules is None:
-        seasons = list(range(season - 3, season + 1))
+        seasons = list(range(2015, season + 1))
         schedules = load_schedules(seasons)
 
     normalized = _run_factors(

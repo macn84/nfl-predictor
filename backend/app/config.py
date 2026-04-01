@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time
-    h2h_games: int = 5               # max head-to-head meetings to look back
+    h2h_games: int = 10              # max head-to-head meetings to look back
     coaching_min_games: int = 3      # sub-signals below this threshold use 0.0 (neutral)
 
     # Data cache

@@ -168,7 +168,7 @@ def get_week_covers(
     - Authenticated: factors included.
     """
     authenticated = current_user is not None
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
     games = _cover_week_games(
@@ -193,7 +193,7 @@ def get_game_cover(
 
     Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
     """
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
     for _, row in week_games.iterrows():

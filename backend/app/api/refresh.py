@@ -37,7 +37,7 @@ def refresh_data(body: RefreshRequest) -> RefreshResponse:
     Returns:
         RefreshResponse with the number of rows in the refreshed schedule.
     """
-    history_seasons = list(range(body.season - 3, body.season + 1))
+    history_seasons = list(range(2015, body.season + 1))
     schedules = load_schedules(history_seasons, force_refresh=True)
     load_weekly_stats([body.season], force_refresh=True)
     load_rosters([body.season], force_refresh=True)

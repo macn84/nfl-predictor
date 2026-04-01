@@ -94,7 +94,7 @@ def get_accuracy(
     if cached is not None:
         return cached
 
-    seasons = list(range(season - 3, season + 1))
+    seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     season_games = schedules[schedules["season"] == season]
 

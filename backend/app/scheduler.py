@@ -193,7 +193,7 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     # ------------------------------------------------------------------
     # Step 1: Data refresh
     # ------------------------------------------------------------------
-    history_seasons = list(range(season - 3, season + 1))
+    history_seasons = list(range(2015, season + 1))
     schedules = load_schedules(history_seasons, force_refresh=True)
     load_weekly_stats([season], force_refresh=True)
     load_rosters([season], force_refresh=True)
