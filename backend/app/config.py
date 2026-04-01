@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     margin_slope: float = 0.11420
     margin_intercept: float = 2.5749
 
+    # Confidence clamping — set ceiling < 100 to prevent overconfident picks.
+    # Defaults preserve existing behaviour (no clamping).
+    confidence_floor: float = 50.0
+    confidence_ceiling: float = 100.0
+
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time

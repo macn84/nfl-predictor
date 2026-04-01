@@ -110,7 +110,7 @@ def get_spread(
         game_date: Date of the game.
 
     Returns:
-        Home team spread as a float (negative = home favoured),
+        Home team spread as a float (positive = home favoured, nflverse convention),
         or None if not found.
     """
     season = _season_for_date(game_date)

@@ -7,6 +7,12 @@ CSV files in data/spreads/. No API key or quota required.
 For current/upcoming games: fetches live spreads from The Odds API.
 Requires ODDS_API_KEY in backend/.env. Skips gracefully if absent.
 
+Spread sign convention (matches nflverse and nflreadpy):
+    Positive value → home team is giving points → home team is FAVOURED.
+    Negative value → away team is giving points → away team is FAVOURED.
+    This is the convention used by both get_spread() and the schedules
+    spread_line column from nflreadpy.
+
 Score convention: positive → home team is favoured by the spread.
 """
 
@@ -36,17 +42,17 @@ _odds_cache_ts: float = 0.0
 def _spread_to_score(home_spread: float) -> float:
     """Convert a home-team point spread to a -100..+100 score.
 
-    Negative spread = home team favoured → positive score.
+    Positive spread = home team favoured → positive score.
     Clamped at ±_MAX_SPREAD points.
 
     Args:
-        home_spread: Spread from home team's perspective (negative = home favoured).
+        home_spread: Spread from home team's perspective (positive = home favoured).
 
     Returns:
         Score in -100..+100.
     """
     clamped = max(-_MAX_SPREAD, min(_MAX_SPREAD, home_spread))
-    return (-clamped / _MAX_SPREAD) * 100.0
+    return (clamped / _MAX_SPREAD) * 100.0
 
 
 def _skip(reason: str) -> FactorResult:
@@ -116,7 +122,9 @@ def _find_live_spread(
                     continue
                 for outcome in market.get("outcomes", []):
                     if home_team.upper() in outcome.get("name", "").upper():
-                        return float(outcome["point"])
+                        # Odds API: negative = home favoured (standard bookmaker convention).
+                        # Negate to match nflverse convention: positive = home favoured.
+                        return -float(outcome["point"])
     return None
 
 

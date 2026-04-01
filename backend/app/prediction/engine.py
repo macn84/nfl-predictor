@@ -71,8 +71,11 @@ def _weighted_sum_to_confidence(weighted_sum: float) -> float:
     Returns:
         Confidence score in 0..100.
     """
-    # Map 0..±100 to 50..100 (symmetric)
-    return 50.0 + abs(weighted_sum) / 2.0
+    from app.config import settings  # local import avoids circular dependency
+
+    # Map 0..±100 to 50..100 (symmetric), then clamp to configured floor/ceiling.
+    raw = 50.0 + abs(weighted_sum) / 2.0
+    return max(settings.confidence_floor, min(settings.confidence_ceiling, raw))
 
 
 def _run_factors(
