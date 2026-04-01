@@ -1,7 +1,7 @@
 """
 betting_lines.py - Betting lines factor.
 
-For historical games (2021-2025): reads closing spreads from nflverse
+For historical games (2015-2025): reads closing spreads from nflverse
 CSV files in data/spreads/. No API key or quota required.
 
 For current/upcoming games: fetches live spreads from The Odds API.

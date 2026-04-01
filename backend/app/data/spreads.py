@@ -1,7 +1,7 @@
 """
 data/spreads.py - Historical closing-line spreads loader.
 
-Loads closing spread data from nflverse CSV files for seasons 2021-2025.
+Loads closing spread data from nflverse CSV files for seasons 2015-2025.
 Used by betting_lines.py for historical accuracy testing, replacing live
 Odds API calls which only serve current/upcoming games.
 
@@ -142,7 +142,7 @@ def get_spread(
 def is_historical(game_date: date) -> bool:
     """Return True if a game date falls within the historical CSV coverage.
 
-    Coverage: 2021 season (Sep 2021) through 2025 season (Feb 2026).
+    Coverage: 2015 season (Sep 2015) through 2025 season (Feb 2026).
 
     Args:
         game_date: Date to check.
@@ -150,7 +150,7 @@ def is_historical(game_date: date) -> bool:
     Returns:
         True if historical spread data is likely available.
     """
-    return date(2021, 9, 1) <= game_date <= date(2026, 2, 28)
+    return date(2015, 9, 1) <= game_date <= date(2026, 2, 28)
 
 
 def _season_for_date(game_date: date) -> int:
