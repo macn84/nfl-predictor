@@ -10,10 +10,10 @@ import pytest
 from app.data.coaches import CoachRecord
 from app.data.weather import GameWeather, WeatherCondition
 from app.prediction.factors import (
+    ats_form,
     betting_lines,
     coaching_matchup,
     head_to_head,
-    home_away,
     recent_form,
     weather_factor,
 )
@@ -117,57 +117,116 @@ class TestRecentForm:
         assert result.supporting_data["game_date_filter"] is None
 
 
-class TestHomeAway:
-    def test_returns_factor_result(self, schedules):
-        result = home_away.calculate(schedules, "KC", "BUF", season=2024)
-        assert isinstance(result, FactorResult)
-        assert result.name == "home_away"
+class TestAtsForm:
+    def _make_spread_map(self, monkeypatch, spread_map: dict):
+        """Patch get_spread to return values from a (home, away, date_str) dict."""
+        monkeypatch.setattr(
+            "app.prediction.factors.ats_form.get_spread",
+            lambda h, a, d: spread_map.get((h, a, d.isoformat())),
+        )
 
-    def test_score_in_range(self, schedules):
-        result = home_away.calculate(schedules, "KC", "BUF", season=2024)
+    def _all_spread_map(self, monkeypatch, value: float):
+        """Patch get_spread to always return a fixed value."""
+        monkeypatch.setattr(
+            "app.prediction.factors.ats_form.get_spread",
+            lambda h, a, d: value,
+        )
+
+    def test_returns_factor_result(self, schedules, monkeypatch):
+        self._all_spread_map(monkeypatch, 3.0)
+        result = ats_form.calculate(schedules, "KC", "BUF", n=5, min_games=1)
+        assert isinstance(result, FactorResult)
+        assert result.name == "ats_form"
+
+    def test_score_in_range(self, schedules, monkeypatch):
+        self._all_spread_map(monkeypatch, 3.0)
+        result = ats_form.calculate(schedules, "KC", "BUF", n=5, min_games=1)
         assert -100.0 <= result.score <= 100.0
 
-    def test_contribution_equals_score_times_weight(self, schedules):
-        result = home_away.calculate(schedules, "KC", "BUF", season=2024)
+    def test_contribution_equals_score_times_weight(self, schedules, monkeypatch):
+        self._all_spread_map(monkeypatch, 3.0)
+        monkeypatch.setattr("app.prediction.factors.ats_form.settings.weight_ats_form", 0.15)
+        result = ats_form.calculate(schedules, "KC", "BUF", n=5, min_games=1)
         assert abs(result.contribution - result.score * result.weight) < 1e-9
 
-    def test_favours_strong_home_team(self, schedules):
-        # KC is 4-0 at home in 2024; BUF is 1-2 at home (not away wins for BUF)
-        result = home_away.calculate(schedules, "KC", "BUF", season=2024)
-        # KC home win pct > BUF away win pct → positive score
-        assert result.score > 0
-
-    def test_no_data_returns_neutral(self):
-        empty = pd.DataFrame(columns=["season", "home_team", "away_team", "result"])
-        result = home_away.calculate(empty, "KC", "BUF", season=2024)
-        assert result.score == 0.0
-
-    def test_game_date_filter_excludes_later_games(self):
-        """KC home losses after game_date must not drag down KC's home win pct."""
+    def test_favours_team_that_covers_more(self, monkeypatch):
+        """Home team always covers (wins by more than spread); away team never covers."""
+        kc_dates  = ["2024-09-08", "2024-09-15", "2024-09-22", "2024-09-29", "2024-10-06"]
+        buf_dates = ["2024-09-09", "2024-09-16", "2024-09-23", "2024-09-30", "2024-10-07"]
         rows = [
-            # KC wins at home before cutoff
-            {"season": 2024, "week": 1, "gameday": "2024-09-08", "home_team": "KC",
-             "away_team": "BUF", "result": 7.0},
-            {"season": 2024, "week": 3, "gameday": "2024-09-22", "home_team": "KC",
-             "away_team": "LV", "result": 10.0},
-            # KC home loss AFTER cutoff
-            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "KC",
-             "away_team": "DEN", "result": -7.0},
+            # KC at home: wins by 10, spread=3 → 10 > 3 → covers every time
+            {"season": 2024, "week": i + 1, "gameday": kc_dates[i],
+             "home_team": "KC", "away_team": "LV", "result": 10.0}
+            for i in range(5)
+        ] + [
+            # BUF as away: result=-2 (DEN wins by 2), spread=-3 (BUF favoured by 3)
+            # BUF covers when actual_margin < spread → -2 < -3 → False → never covers
+            {"season": 2024, "week": i + 1, "gameday": buf_dates[i],
+             "home_team": "DEN", "away_team": "BUF", "result": -2.0}
+            for i in range(5)
         ]
         df = pd.DataFrame(rows)
-        cutoff = date(2024, 10, 1)
-        filtered = home_away.calculate(df, "KC", "BUF", season=2024, game_date=cutoff)
-        unfiltered = home_away.calculate(df, "KC", "BUF", season=2024)
-        # KC home win pct should be higher when post-cutoff loss is excluded
-        assert (
-            filtered.supporting_data["home_team_home_win_pct"]
-            > unfiltered.supporting_data["home_team_home_win_pct"]
+        kc_spread_map  = {("KC",  "LV",  d): 3.0  for d in kc_dates}
+        buf_spread_map = {("DEN", "BUF", d): -3.0 for d in buf_dates}
+        monkeypatch.setattr(
+            "app.prediction.factors.ats_form.get_spread",
+            lambda h, a, d: {**kc_spread_map, **buf_spread_map}.get((h, a, d.isoformat())),
         )
-        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
+        result = ats_form.calculate(df, "KC", "BUF", n=10, min_games=5)
+        assert result.score > 0, "KC covering 5/5 vs BUF covering 0/5 should produce positive score"
 
-    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
-        result = home_away.calculate(schedules, "KC", "BUF", season=2024, game_date=None)
+    def test_skips_when_insufficient_spread_data(self, schedules, monkeypatch):
+        """Factor skips when get_spread returns None for all lookback games."""
+        monkeypatch.setattr(
+            "app.prediction.factors.ats_form.get_spread",
+            lambda h, a, d: None,
+        )
+        result = ats_form.calculate(schedules, "KC", "BUF", n=10, min_games=5)
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_game_date_filter_excludes_later_games(self, monkeypatch):
+        """Games after game_date must not count toward ATS rate."""
+        rows = [
+            # KC covers before cutoff (result=10 > spread=3)
+            {"season": 2024, "week": 1, "gameday": "2024-09-08",
+             "home_team": "KC", "away_team": "BUF", "result": 10.0},
+            {"season": 2024, "week": 2, "gameday": "2024-09-15",
+             "home_team": "KC", "away_team": "LV", "result": 10.0},
+            {"season": 2024, "week": 3, "gameday": "2024-09-22",
+             "home_team": "KC", "away_team": "NO", "result": 10.0},
+            {"season": 2024, "week": 4, "gameday": "2024-09-29",
+             "home_team": "KC", "away_team": "MIN", "result": 10.0},
+            {"season": 2024, "week": 5, "gameday": "2024-10-06",
+             "home_team": "KC", "away_team": "TEN", "result": 10.0},
+            # KC fails to cover AFTER cutoff (result=2 < spread=3)
+            {"season": 2024, "week": 10, "gameday": "2024-11-10",
+             "home_team": "KC", "away_team": "DEN", "result": 2.0},
+        ]
+        df = pd.DataFrame(rows)
+        cutoff = date(2024, 10, 15)
+        monkeypatch.setattr(
+            "app.prediction.factors.ats_form.get_spread",
+            lambda h, a, d: 3.0,
+        )
+        filtered = ats_form.calculate(df, "KC", "BUF", game_date=cutoff, n=10, min_games=1)
+        unfiltered = ats_form.calculate(df, "KC", "BUF", n=10, min_games=1)
+        # Filtered: KC covers 5/5 = 1.0; unfiltered: KC covers 5/6 ≈ 0.833
+        assert filtered.supporting_data["home_ats_rate"] > unfiltered.supporting_data["home_ats_rate"]
+        assert filtered.supporting_data["game_date_filter"] == "2024-10-15"
+
+    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules, monkeypatch):
+        self._all_spread_map(monkeypatch, 3.0)
+        result = ats_form.calculate(schedules, "KC", "BUF", game_date=None, n=5, min_games=1)
         assert result.supporting_data["game_date_filter"] is None
+
+    def test_supporting_data_fields_present(self, schedules, monkeypatch):
+        self._all_spread_map(monkeypatch, 3.0)
+        result = ats_form.calculate(schedules, "KC", "BUF", n=5, min_games=1)
+        sd = result.supporting_data
+        for key in ("home_ats_rate", "away_ats_rate", "home_qualifying_games",
+                    "away_qualifying_games", "games_lookback", "game_date_filter"):
+            assert key in sd
 
 
 class TestHeadToHead:
@@ -241,10 +300,10 @@ class TestBettingLines:
         assert isinstance(result, FactorResult)
         assert result.name == "betting_lines"
 
-    def test_spread_to_score_negative_spread_is_positive(self):
+    def test_spread_to_score_positive_spread_is_positive(self):
         from app.prediction.factors.betting_lines import _spread_to_score
-        # Negative spread = home favoured → should produce positive score
-        assert _spread_to_score(-7.0) > 0
+        # Positive spread = home favoured (nflverse convention) → should produce positive score
+        assert _spread_to_score(7.0) > 0
 
     def test_spread_to_score_zero_is_neutral(self):
         from app.prediction.factors.betting_lines import _spread_to_score
@@ -252,8 +311,8 @@ class TestBettingLines:
 
     def test_spread_to_score_clamped(self):
         from app.prediction.factors.betting_lines import _spread_to_score
-        assert _spread_to_score(-100.0) == 100.0
-        assert _spread_to_score(100.0) == -100.0
+        assert _spread_to_score(100.0) == 100.0
+        assert _spread_to_score(-100.0) == -100.0
 
 
 class TestCoachingMatchup:

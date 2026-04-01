@@ -19,11 +19,11 @@ export const fixtureGame: GamePrediction = {
       supporting_data: { home_wins: 3, away_wins: 2 },
     },
     {
-      name: 'home_away',
+      name: 'ats_form',
       score: 33.3,
       weight: 0.333,
       contribution: 11.1,
-      supporting_data: { home_win_pct: 0.7, away_win_pct: 0.5 },
+      supporting_data: { home_ats_rate: 0.7, away_ats_rate: 0.5 },
     },
     {
       name: 'head_to_head',

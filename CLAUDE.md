@@ -42,7 +42,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `prediction/models.py` | Pydantic types: `FactorResult`, `PredictionResult`, `CoverPredictionResult` |
 | `prediction/calibration.py` | `MARGIN_SLOPE` / `MARGIN_INTERCEPT` constants for cover margin calibration. Update after each season-end optimiser run. |
 | `prediction/factors/recent_form.py` | Last N games, recency-weighted geometric decay |
-| `prediction/factors/home_away.py` | Season win % home vs. road |
+| `prediction/factors/ats_form.py` | Recent ATS cover rate vs. closing spread (last N games with spread data). Defaults to `weight=0.0` — enable in `.env`. |
 | `prediction/factors/head_to_head.py` | Historical meeting results |
 | `prediction/factors/betting_lines.py` | The Odds API point spread (live) or historical closing spread via `spreads.py` (past games) |
 | `prediction/factors/coaching_matchup.py` | Three sub-signals averaged: home coach vs. opponent record, away coach vs. opponent record (inverted), direct coach H2H. Defaults to `weight=0.0` — enable in `.env`. |

@@ -17,10 +17,10 @@ from app.data.loader import load_schedules
 from app.data.spreads import get_spread
 from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
 from app.prediction.factors import (
+    ats_form,
     betting_lines,
     coaching_matchup,
     head_to_head,
-    home_away,
     recent_form,
     weather_factor,
 )
@@ -107,7 +107,7 @@ def _run_factors(
     """
     raw: list[FactorResult] = [
         recent_form.calculate(schedules, home_team, away_team, game_date=game_date),
-        home_away.calculate(schedules, home_team, away_team, season, game_date=game_date),
+        ats_form.calculate(schedules, home_team, away_team, game_date=game_date),
         head_to_head.calculate(schedules, home_team, away_team, game_date=game_date),
         betting_lines.calculate(home_team, away_team, game_date=game_date),
         coaching_matchup.calculate(schedules, home_team, away_team, season, game_date=game_date),

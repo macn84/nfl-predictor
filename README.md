@@ -20,12 +20,13 @@ make install
 | Variable | Purpose |
 |----------|---------|
 | `ODDS_API_KEY` | Free key from [the-odds-api.com](https://the-odds-api.com/) — betting lines factor is skipped if absent |
-| `WEIGHT_RECENT_FORM` / `_HOME_AWAY` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Winner-mode factor weights (engine normalises them, so relative values are what matter) |
+| `WEIGHT_RECENT_FORM` / `_ATS_FORM` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Winner-mode factor weights (engine normalises them, so relative values are what matter) |
 | `WEIGHT_COACHING_MATCHUP` / `WEIGHT_WEATHER` | Winner-mode coaching and weather weights (both default to `0.0` — disabled until you set a value) |
-| `COVER_WEIGHT_RECENT_FORM` / `_HOME_AWAY` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Cover-mode factor weights (independent profile from winner weights) |
+| `COVER_WEIGHT_RECENT_FORM` / `_ATS_FORM` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Cover-mode factor weights (independent profile from winner weights) |
 | `COVER_WEIGHT_COACHING_MATCHUP` / `COVER_WEIGHT_WEATHER` | Cover-mode coaching and weather weights |
-| `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `H2H_GAMES` | Factor calibration parameters |
+| `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `ATS_FORM_GAMES` / `H2H_GAMES` | Factor calibration parameters |
 | `COACHING_MIN_GAMES` | Minimum games in a coaching record before that sub-signal is used (default `3`) |
+| `CONFIDENCE_FLOOR` / `CONFIDENCE_CEILING` | Clamp the output confidence score (optional; defaults preserve full 50–100 range) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` | Login credentials — `ADMIN_PASSWORD_HASH` is a bcrypt hash (see `.env.example` for generation command) |
 | `SECRET_KEY` | JWT signing key — generate with `openssl rand -hex 32` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime in minutes (default `10080` = 7 days) |
@@ -61,6 +62,7 @@ Or from VS Code: **Cmd/Ctrl+Shift+B** (default build task) starts both servers, 
 | `GET` | `/api/v1/auth/me` | Validate token and return current username |
 | `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock a single game prediction as the prediction of record (auth required) |
 | `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock all games in a week (auth required, CLI use) |
+| `POST` | `/api/v1/scheduler/run-now?backfill=` | Manually trigger the scheduled refresh (auth required; `?backfill=true` forces full season recompute) |
 
 **Public vs authenticated:** Unauthenticated requests to the list endpoints (`/predictions/{week}`, `/covers/{week}`) return all predictions but with `factors: []` — factor weights and scores are stripped. The week list (`/weeks`) returns a `completed` flag per week; unauthenticated clients should display only completed weeks. Detail endpoints require a valid token.
 
@@ -109,7 +111,7 @@ The winner and cover modes use independent weight profiles so each can be tuned 
 | Factor | Source |
 |--------|--------|
 | Recent form | Last N games, recency-weighted with geometric decay |
-| Home/away splits | Season win % at home vs. on the road |
+| ATS form | Recent cover rate vs. closing spread (last N games with spread data) |
 | Head-to-head | Historical meetings across seasons |
 | Betting lines | The Odds API point spread (live) or nflverse closing spreads (historical) |
 | Coaching matchup | Coach vs. opponent record + direct coach head-to-head (requires `data/nfl_coaches_full_dataset.csv`; disabled by default) |
@@ -198,7 +200,7 @@ backend/
 │       ├── engine.py          # predict() and predict_cover(); shared _run_factors()
 │       ├── models.py          # Pydantic types (FactorResult, PredictionResult, CoverPredictionResult)
 │       ├── calibration.py     # margin calibration constants for cover mode
-│       └── factors/           # one module per factor
+│       └── factors/           # one module per factor (recent_form, ats_form, head_to_head, betting_lines, coaching_matchup, weather_factor)
 ├── tests/
 └── pyproject.toml
 frontend/
@@ -220,6 +222,6 @@ frontend/
 data/                          # CSV cache + static datasets (gitignored)
 ├── nfl_coaches_full_dataset.csv   # required for coaching_matchup factor
 ├── nfl_stadiums.csv               # required for weather factor
-└── spreads/                       # historical closing spreads 2021–2025
+└── spreads/                       # historical closing spreads 2015–2025
     └── nfl_{season}_spreads.csv
 ```

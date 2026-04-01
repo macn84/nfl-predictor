@@ -6,9 +6,11 @@ interface FactorBarProps {
 
 const FACTOR_LABELS: Record<string, string> = {
   recent_form: 'Recent Form',
-  home_away: 'Home/Away',
+  ats_form: 'ATS Form',
   head_to_head: 'Head to Head',
   betting_lines: 'Betting Lines',
+  coaching_matchup: 'Coaching Matchup',
+  weather: 'Weather',
 }
 
 export function FactorBar({ factor }: FactorBarProps) {

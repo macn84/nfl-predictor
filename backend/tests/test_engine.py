@@ -86,7 +86,7 @@ class TestPredict:
         result = predict("KC", "BUF", 2024, schedules=schedules)
         names = {f.name for f in result.factors}
         assert names == {
-            "recent_form", "home_away", "head_to_head",
+            "recent_form", "ats_form", "head_to_head",
             "betting_lines", "coaching_matchup", "weather",
         }
 

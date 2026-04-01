@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Engine normalises whatever values you provide so they don't need to sum to 1.0.
     # Defaults here are equal weights so the app runs without a .env file.
     weight_recent_form: float = 0.25
-    weight_home_away: float = 0.25
+    weight_ats_form: float = 0.0           # disabled by default; set in backend/.env
     weight_head_to_head: float = 0.25
     weight_betting_lines: float = 0.25
     weight_coaching_matchup: float = 0.0  # disabled by default; set in backend/.env
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # Cover mode weights — override in backend/.env to keep tuned values private.
     # Defaults here give equal weight to all factors so the app runs without .env.
     cover_weight_recent_form: float = 0.25
-    cover_weight_home_away: float = 0.25
+    cover_weight_ats_form: float = 0.0     # disabled by default
     cover_weight_head_to_head: float = 0.25
     cover_weight_betting_lines: float = 0.25
     cover_weight_coaching_matchup: float = 0.0  # disabled by default
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Factor tuning — override in backend/.env to keep your calibration private.
     recent_form_games: int = 5       # how many past games to consider for recent form
     recent_form_decay: float = 0.5   # geometric decay per game back in time
+    ats_form_games: int = 10         # ATS lookback window (games with spread data)
     h2h_games: int = 10              # max head-to-head meetings to look back
     coaching_min_games: int = 3      # sub-signals below this threshold use 0.0 (neutral)
 
@@ -80,7 +81,7 @@ class Settings(BaseSettings):
         """Return named factor weights for use by the engine."""
         return {
             "recent_form": self.weight_recent_form,
-            "home_away": self.weight_home_away,
+            "ats_form": self.weight_ats_form,
             "head_to_head": self.weight_head_to_head,
             "betting_lines": self.weight_betting_lines,
             "coaching_matchup": self.weight_coaching_matchup,
@@ -92,7 +93,7 @@ class Settings(BaseSettings):
         """Return named factor weights for the cover prediction mode."""
         return {
             "recent_form": self.cover_weight_recent_form,
-            "home_away": self.cover_weight_home_away,
+            "ats_form": self.cover_weight_ats_form,
             "head_to_head": self.cover_weight_head_to_head,
             "betting_lines": self.cover_weight_betting_lines,
             "coaching_matchup": self.cover_weight_coaching_matchup,
