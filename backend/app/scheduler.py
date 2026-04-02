@@ -116,6 +116,10 @@ def _add_to_cache(
     pred = predict(home, away, season, schedules=schedules, game_date=game_date)
     spread = get_spread(home, away, game_date) if game_date else None
 
+    bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+    home_juice: int | None = bl.supporting_data.get("home_juice") if bl else None
+    away_juice: int | None = bl.supporting_data.get("away_juice") if bl else None
+
     cache[cache_key] = {
         "game_id": cache_key,
         "factors": {
@@ -126,6 +130,8 @@ def _add_to_cache(
             for f in pred.factors
         },
         "spread": spread,
+        "home_juice": home_juice,
+        "away_juice": away_juice,
     }
     return True
 

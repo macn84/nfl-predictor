@@ -97,8 +97,8 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
 
 def _find_live_spread(
     odds_data: list[dict[str, Any]], home_team: str, away_team: str
-) -> Optional[float]:
-    """Extract home-team spread from Odds API response.
+) -> Optional[tuple[float, int, int]]:
+    """Extract home-team spread and juice from Odds API response.
 
     The Odds API uses full team names (e.g. 'Kansas City Chiefs').
     Matches by checking if the team abbreviation appears in the full name.
@@ -109,7 +109,9 @@ def _find_live_spread(
         away_team: Away team abbreviation.
 
     Returns:
-        Home-team spread as float, or None if not found.
+        Tuple of (home_spread, home_price, away_price) or None if not found.
+        home_spread is positive when home team is favoured (nflverse convention).
+        Prices are American odds (e.g. -110).
     """
     for game in odds_data:
         h = game.get("home_team", "").upper()
@@ -120,11 +122,20 @@ def _find_live_spread(
             for market in bookmaker.get("markets", []):
                 if market.get("key") != "spreads":
                     continue
+                home_point: float | None = None
+                home_price: int = -110
+                away_price: int = -110
                 for outcome in market.get("outcomes", []):
-                    if home_team.upper() in outcome.get("name", "").upper():
+                    name_upper = outcome.get("name", "").upper()
+                    if home_team.upper() in name_upper:
                         # Odds API: negative = home favoured (standard bookmaker convention).
                         # Negate to match nflverse convention: positive = home favoured.
-                        return -float(outcome["point"])
+                        home_point = -float(outcome["point"])
+                        home_price = int(outcome.get("price", -110))
+                    elif away_team.upper() in name_upper:
+                        away_price = int(outcome.get("price", -110))
+                if home_point is not None:
+                    return (home_point, home_price, away_price)
     return None
 
 
@@ -186,10 +197,11 @@ def calculate(
     if len(odds_data) == 0:
         return _skip("no games currently available in odds feed (offseason)")
 
-    spread = _find_live_spread(odds_data, home_team, away_team)
-    if spread is None:
+    live = _find_live_spread(odds_data, home_team, away_team)
+    if live is None:
         return _skip(f"game not found in live odds feed ({home_team} vs {away_team})")
 
+    spread, home_juice, away_juice = live
     score = _spread_to_score(spread)
     return FactorResult(
         name="betting_lines",
@@ -198,6 +210,8 @@ def calculate(
         contribution=score * weight,
         supporting_data={
             "home_team_spread": spread,
+            "home_juice": home_juice,
+            "away_juice": away_juice,
             "source": "odds_api_live",
             "game_date": str(game_date) if game_date else None,
         },

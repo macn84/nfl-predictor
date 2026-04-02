@@ -44,6 +44,8 @@ class GameCoverPrediction(BaseModel):
     cover_confidence: float
     factors: list[FactorResult]
     locked: bool  # True when prediction is the official prediction of record
+    home_juice: int | None = None  # American odds for home team spread (e.g. -110)
+    away_juice: int | None = None  # American odds for away team spread (e.g. -110)
 
 
 class WeekCoversResponse(BaseModel):
@@ -104,6 +106,9 @@ def _cover_week_games(
         cache_key = f"{home}-{away}-{game_date}" if game_date else None
         in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
 
+        home_juice: int | None = None
+        away_juice: int | None = None
+
         if in_cache and score_cache is not None and cache_key is not None:
             cached = score_cache[cache_key]
             weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
@@ -119,6 +124,8 @@ def _cover_week_games(
                 else None
             )
             spread = cached_spread
+            home_juice = cached.get("home_juice")
+            away_juice = cached.get("away_juice")
             factors: list[FactorResult] = []
             locked = not is_completed
         else:
@@ -129,6 +136,9 @@ def _cover_week_games(
             predicted_margin = pred.predicted_margin
             predicted_cover = pred.predicted_cover
             cover_confidence = pred.cover_confidence
+            bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+            home_juice = bl.supporting_data.get("home_juice") if bl else None
+            away_juice = bl.supporting_data.get("away_juice") if bl else None
             factors = pred.factors if authenticated else []
             locked = False
 
@@ -146,6 +156,8 @@ def _cover_week_games(
                 cover_confidence=cover_confidence,
                 factors=factors,
                 locked=locked,
+                home_juice=home_juice,
+                away_juice=away_juice,
             )
         )
     return results
@@ -222,6 +234,7 @@ def get_game_cover(
         pred: CoverPredictionResult = predict_cover(
             home, away, season, schedules=schedules, game_date=game_date
         )
+        bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
         return GameCoverPrediction(
             game_id=game_id,
             season=season,
@@ -235,6 +248,8 @@ def get_game_cover(
             cover_confidence=pred.cover_confidence,
             factors=pred.factors,
             locked=locked,
+            home_juice=bl.supporting_data.get("home_juice") if bl else None,
+            away_juice=bl.supporting_data.get("away_juice") if bl else None,
         )
     raise HTTPException(
         status_code=404,

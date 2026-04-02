@@ -27,6 +27,7 @@ make install
 | `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `ATS_FORM_GAMES` / `H2H_GAMES` | Factor calibration parameters |
 | `COACHING_MIN_GAMES` | Minimum games in a coaching record before that sub-signal is used (default `3`) |
 | `CONFIDENCE_FLOOR` / `CONFIDENCE_CEILING` | Clamp the output confidence score (optional; defaults preserve full 50–100 range) |
+| `COVER_EDGE_THRESHOLD` | Confidence floor for high-conviction cover picks — sets the threshold for the EDGE badge and filter in the UI |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` | Login credentials — `ADMIN_PASSWORD_HASH` is a bcrypt hash (see `.env.example` for generation command) |
 | `SECRET_KEY` | JWT signing key — generate with `openssl rand -hex 32` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime in minutes (default `10080` = 7 days) |
@@ -63,6 +64,7 @@ Or from VS Code: **Cmd/Ctrl+Shift+B** (default build task) starts both servers, 
 | `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock a single game prediction as the prediction of record (auth required) |
 | `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock all games in a week (auth required, CLI use) |
 | `POST` | `/api/v1/scheduler/run-now?backfill=` | Manually trigger the scheduled refresh (auth required; `?backfill=true` forces full season recompute) |
+| `GET` | `/api/v1/config` | Frontend UI configuration (cover edge threshold; no auth required) |
 
 **Public vs authenticated:** Unauthenticated requests to the list endpoints (`/predictions/{week}`, `/covers/{week}`) return all predictions but with `factors: []` — factor weights and scores are stripped. The week list (`/weeks`) returns a `completed` flag per week; unauthenticated clients should display only completed weeks. Detail endpoints require a valid token.
 
@@ -189,7 +191,8 @@ backend/
 │   │   ├── lock.py            # POST /api/v1/predictions/{week}[/{game_id}]/lock
 │   │   ├── accuracy.py        # GET /api/v1/accuracy
 │   │   ├── cover_accuracy.py  # GET /api/v1/accuracy/covers
-│   │   └── refresh.py         # POST /api/v1/refresh
+│   │   ├── refresh.py         # POST /api/v1/refresh
+│   │   └── frontend_config.py # GET /api/v1/config
 │   ├── data/
 │   │   ├── loader.py          # nflreadpy wrappers with CSV caching
 │   │   ├── cache.py           # score cache load/write + lock_game_to_cache()

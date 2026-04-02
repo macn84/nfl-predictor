@@ -5,10 +5,24 @@ import { useAuth } from '../../context/AuthContext'
 import type { PredictionMode } from '../../pages/WeeklyDashboard/WeeklyDashboard'
 import { ConfidenceBadge } from '../ConfidenceBadge/ConfidenceBadge'
 
+function computeEV(modelProb: number, juice: number): number {
+  const prob = modelProb / 100
+  const payout = juice < 0 ? 100 / Math.abs(juice) : juice / 100
+  return (prob * payout - (1 - prob)) * 100
+}
+
+function evColor(ev: number): string {
+  if (ev > 10) return 'text-app-green'
+  if (ev > 5) return 'text-app-gold'
+  if (ev >= 0) return 'text-app-muted'
+  return 'text-app-dim'
+}
+
 interface GameCardProps {
   game: GamePrediction | GameCoverPrediction
   mode: PredictionMode
   season: number
+  edgeThreshold?: number
   onLocked?: (gameId: string) => void
 }
 
@@ -17,7 +31,7 @@ function formatSpread(team: string, spread: number): string {
   return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
 }
 
-export function GameCard({ game, mode, season, onLocked }: GameCardProps) {
+export function GameCard({ game, mode, season, edgeThreshold, onLocked }: GameCardProps) {
   const { isAuthenticated } = useAuth()
   const { home_team, away_team, week, game_id, gameday } = game
   const [locked, setLocked] = useState(game.locked)
@@ -73,6 +87,14 @@ export function GameCard({ game, mode, season, onLocked }: GameCardProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {mode === 'covers' && edgeThreshold !== undefined && confidence >= edgeThreshold && (
+            <span
+              title="High-confidence cover pick"
+              className="text-app-gold text-xs font-mono border border-app-gold/40 rounded px-1.5 py-0.5 leading-none"
+            >
+              EDGE
+            </span>
+          )}
           {locked && (
             <span
               title="Prediction of record"
@@ -93,7 +115,7 @@ export function GameCard({ game, mode, season, onLocked }: GameCardProps) {
           </span>
         </div>
       ) : (
-        <CoverStats game={game as GameCoverPrediction} />
+        <CoverStats game={game as GameCoverPrediction} confidence={confidence} />
       )}
 
       <div className="mt-3 pt-3 border-t border-app-border flex items-center justify-between">
@@ -172,8 +194,14 @@ export function GameCard({ game, mode, season, onLocked }: GameCardProps) {
   )
 }
 
-function CoverStats({ game }: { game: GameCoverPrediction }) {
-  const { spread, predicted_cover, predicted_margin, home_team } = game
+function CoverStats({ game, confidence }: { game: GameCoverPrediction; confidence: number }) {
+  const { spread, predicted_cover, predicted_margin, home_team, away_team, home_juice, away_juice } = game
+
+  const juice =
+    predicted_cover === home_team ? home_juice :
+    predicted_cover === away_team ? away_juice :
+    null
+  const ev = predicted_cover !== null ? computeEV(confidence, juice ?? -110) : null
 
   return (
     <div className="text-sm text-app-muted space-y-0.5">
@@ -181,6 +209,9 @@ function CoverStats({ game }: { game: GameCoverPrediction }) {
         <div>
           Line:{' '}
           <span className="font-semibold text-app-text">{formatSpread(home_team, spread)}</span>
+          {juice !== null && (
+            <span className="text-app-dim ml-1 font-mono text-xs">({juice > 0 ? `+${juice}` : juice})</span>
+          )}
         </div>
       ) : (
         <div className="text-app-dim">No line available</div>
@@ -191,6 +222,14 @@ function CoverStats({ game }: { game: GameCoverPrediction }) {
           {predicted_margin !== null && (
             <span className="text-app-dim ml-1">(by {Math.abs(predicted_margin).toFixed(1)})</span>
           )}
+        </div>
+      )}
+      {ev !== null && (
+        <div>
+          EV:{' '}
+          <span className={`font-semibold font-mono ${evColor(ev)}`}>
+            {ev >= 0 ? '+' : ''}{ev.toFixed(1)}%
+          </span>
         </div>
       )}
     </div>

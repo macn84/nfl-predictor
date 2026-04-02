@@ -27,12 +27,13 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `auth/deps.py` | `get_current_user` (raises 401) and `get_optional_user` (returns None). Both short-circuit to `"dev"` when `settings.auth_disabled=True`. |
 | `api/auth.py` | `POST /api/v1/auth/login` (OAuth2 form → JWT), `GET /api/v1/auth/me` (token check) |
 | `api/predictions.py` | `GET /api/v1/weeks` (incl. `completed` flag), `/predictions/{week}` (optional auth — strips `factors` if unauthenticated), `/predictions/{week}/{game_id}` (auth required) |
-| `api/covers.py` | Same auth pattern as predictions.py. `/covers/{week}` strips factors if unauthenticated; `/covers/{week}/{game_id}` requires auth. |
+| `api/covers.py` | Same auth pattern as predictions.py. `/covers/{week}` strips factors if unauthenticated; `/covers/{week}/{game_id}` requires auth. Response includes `home_juice`/`away_juice` (American odds from Odds API, null for historical games). |
 | `api/lock.py` | `POST /predictions/{week}/{game_id}/lock` (per-game, UI) and `POST /predictions/{week}/lock` (bulk, CLI). Both require auth. Delegates to `cache.lock_game_to_cache()`. |
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/cover_accuracy.py` | `GET /api/v1/accuracy/covers` — same schema as accuracy.py but for cover picks; excludes games with no spread data and pushes |
 | `api/refresh.py` | `POST /api/v1/refresh` — triggers data fetch |
 | `api/scheduler.py` | `POST /api/v1/scheduler/run-now` — manually trigger the scheduled job (auth required). Optional `?backfill=true` to force full season recompute. |
+| `api/frontend_config.py` | `GET /api/v1/config` — returns UI config sourced from `settings` (no auth). Currently exposes `cover_edge_threshold` only; actual value set in `.env` (private). |
 | `data/cache.py` | `load_score_cache()`, `write_score_cache()`, `apply_weights()`, `lock_game_to_cache()`. The lock helper runs `predict()`, writes the cache entry with correct `skipped` detection (from `supporting_data["skipped"]`, not `weight==0`). |
 | `data/loader.py` | `nflreadpy` wrappers, CSV caching to `data/` |
 | `data/coaches.py` | Head coach lookup from static CSV (`data/nfl_coaches_full_dataset.csv`). `get_coach(team, date)` resolves who was on the sideline; `coaches_met()` / `coach_vs_team_record()` for matchup history. Covers 2015–2026 incl. interim stints. |
@@ -68,7 +69,7 @@ Do not simplify this logic — the two cases are intentionally different.
 | `pages/WeeklyDashboard/` | Game cards for a selected week, sort/filter. Filters week selector to `completed` weeks only when unauthenticated. |
 | `pages/GameDetail/` | Factor breakdown for a single game (auth-gated route via ProtectedRoute) |
 | `pages/SeasonTracker/` | Accuracy vs. actual results (in progress) |
-| `components/GameCard/` | Authenticated: clickable Link with Lock button for upcoming games. Unauthenticated: non-clickable div, no lock UI. Shows `LOCKED` badge when `game.locked === true`. |
+| `components/GameCard/` | Authenticated: clickable Link with Lock button for upcoming games. Unauthenticated: non-clickable div, no lock UI. Shows `LOCKED` badge when `game.locked === true`. In covers mode: shows `EDGE` badge when `cover_confidence >= edgeThreshold` prop (sourced from `useConfig`), juice in the line display, and EV% computed client-side. |
 | `components/ConfidenceBadge/` | Colour-coded confidence score pill |
 | `components/FactorBar/` | Per-factor contribution bar |
 | `components/WeekSelector/` | Week navigation |
@@ -79,8 +80,9 @@ Do not simplify this logic — the two cases are intentionally different.
 | `hooks/useAccuracy` | Fetches `/accuracy` |
 | `hooks/useCoverAccuracy` | Fetches `/accuracy/covers` |
 | `hooks/useCovers` | Fetches `/covers/{week}` |
+| `hooks/useConfig` | Fetches `/api/v1/config` once on mount; returns `FrontendConfig` with `cover_edge_threshold`. Used by `WeeklyDashboard` to drive the EDGE badge threshold and filter. |
 | `api/client.ts` | `apiFetch()` — attaches `Authorization: Bearer <token>` from localStorage on every request. |
-| `api/types.ts` | Response type definitions. `GamePrediction` and `GameCoverPrediction` include `locked: boolean`; `WeekSummary` includes `completed: boolean`. |
+| `api/types.ts` | Response type definitions. `GamePrediction` and `GameCoverPrediction` include `locked: boolean`; `GameCoverPrediction` also includes `home_juice`/`away_juice` (nullable) and EV is computed client-side. `WeekSummary` includes `completed: boolean`. `FrontendConfig` carries `cover_edge_threshold`. |
 
 ### Validation (`validation/`)
 
@@ -122,6 +124,7 @@ Frontend: `http://localhost:5173`
 | `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock single game (auth required) |
 | `POST` | `/api/v1/predictions/{week}/lock?season=` | Bulk lock week (auth required, CLI) |
 | `POST` | `/api/v1/scheduler/run-now?backfill=` | Manually trigger scheduled refresh (auth required) |
+| `GET` | `/api/v1/config` | Frontend UI config — `cover_edge_threshold` (no auth) |
 
 `game_id` format: `{home}-{away}` lowercase, e.g. `kc-buf`.
 

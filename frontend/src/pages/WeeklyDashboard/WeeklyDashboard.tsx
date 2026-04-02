@@ -7,6 +7,7 @@ import type { SortOption } from '../../components/SortFilterBar/SortFilterBar'
 import { SortFilterBar } from '../../components/SortFilterBar/SortFilterBar'
 import { WeekSelector } from '../../components/WeekSelector/WeekSelector'
 import { useAuth } from '../../context/AuthContext'
+import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
@@ -32,10 +33,12 @@ function sortCovers(games: GameCoverPrediction[], sortBy: SortOption): GameCover
 
 export function WeeklyDashboard() {
   const { isAuthenticated } = useAuth()
+  const config = useConfig()
   const [searchParams, setSearchParams] = useSearchParams()
   const season = Number(searchParams.get('season') ?? CURRENT_SEASON)
   const [sortBy, setSortBy] = useState<SortOption>('confidence')
   const [mode, setMode] = useState<PredictionMode>('predictions')
+  const [edgeOnly, setEdgeOnly] = useState(false)
 
   const { data: weeksData, loading: weeksLoading, error: weeksError } = useWeeks(season)
 
@@ -65,10 +68,11 @@ export function WeeklyDashboard() {
     [predictionsData, sortBy],
   )
 
-  const sortedCovers = useMemo(
-    () => sortCovers(coversData?.games ?? [], sortBy),
-    [coversData, sortBy],
-  )
+  const sortedCovers = useMemo(() => {
+    const games = coversData?.games ?? []
+    const filtered = edgeOnly ? games.filter(g => g.cover_confidence >= config.cover_edge_threshold) : games
+    return sortCovers(filtered, sortBy)
+  }, [coversData, sortBy, edgeOnly, config.cover_edge_threshold])
 
   const loading = mode === 'predictions' ? predictionsLoading : coversLoading
   const error = mode === 'predictions' ? predictionsError : coversError
@@ -135,7 +139,13 @@ export function WeeklyDashboard() {
               Cover
             </button>
           </div>
-          <SortFilterBar sortBy={sortBy} onSortChange={setSortBy} />
+          <SortFilterBar
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            mode={mode}
+            edgeOnly={edgeOnly}
+            onEdgeOnlyChange={setEdgeOnly}
+          />
         </div>
       </div>
 
@@ -166,7 +176,7 @@ export function WeeklyDashboard() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedCovers.map((game) => (
-            <GameCard key={game.game_id} game={game} mode="covers" season={season} />
+            <GameCard key={game.game_id} game={game} mode="covers" season={season} edgeThreshold={config.cover_edge_threshold} />
           ))}
         </div>
       )}

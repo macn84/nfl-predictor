@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from app.api import accuracy, auth, cover_accuracy, covers, lock, predictions, refresh
+from app.api import accuracy, auth, cover_accuracy, covers, frontend_config, lock, predictions, refresh
 from app.api import scheduler as scheduler_api
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="NFL Predictor API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(auth.router)
+app.include_router(frontend_config.router)
 app.include_router(predictions.router)
 app.include_router(lock.router)
 app.include_router(covers.router)

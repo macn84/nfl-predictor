@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Data cache
     cache_dir: str = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 
+    # Cover edge threshold — confidence floor for high-conviction cover picks.
+    # Set in backend/.env (private) to keep the actual value out of the public repo.
+    # Default of 50 shows all picks; real value should be set via environment.
+    cover_edge_threshold: int = 50
+
     # The Odds API — optional; betting lines factor is skipped if absent
     odds_api_key: str = ""
 

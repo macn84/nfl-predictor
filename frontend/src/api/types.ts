@@ -49,12 +49,18 @@ export interface GameCoverPrediction {
   cover_confidence: number // 0..100
   factors: FactorResult[]
   locked: boolean
+  home_juice: number | null // American odds for home team spread (e.g. -110)
+  away_juice: number | null // American odds for away team spread (e.g. -110)
 }
 
 export interface WeekCoversResponse {
   season: number
   week: number
   games: GameCoverPrediction[]
+}
+
+export interface FrontendConfig {
+  cover_edge_threshold: number
 }
 
 export interface RefreshResponse {
