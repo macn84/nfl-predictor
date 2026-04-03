@@ -13,15 +13,15 @@ from datetime import date
 
 import pandas as pd
 
-from app.data.loader import load_schedules
+from app.data.loader import load_schedules, load_team_game_stats
 from app.data.spreads import get_spread
 from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
 from app.prediction.factors import (
     ats_form,
     betting_lines,
     coaching_matchup,
-    head_to_head,
-    recent_form,
+    form,
+    rest_advantage,
     weather_factor,
 )
 from app.prediction.models import CoverPredictionResult, FactorResult, PredictionResult
@@ -78,11 +78,43 @@ def _weighted_sum_to_confidence(weighted_sum: float) -> float:
     return max(settings.confidence_floor, min(settings.confidence_ceiling, raw))
 
 
+def _derive_week(
+    schedules: pd.DataFrame,
+    home_team: str,
+    away_team: str,
+    game_date: date | None,
+) -> int:
+    """Look up the week number for a game from the schedules DataFrame.
+
+    Falls back to 9 (mid-season) when the game cannot be found — safe default
+    for the SANYPP threshold check (week 9+).
+
+    Args:
+        schedules: Full schedules DataFrame.
+        home_team: Home team abbreviation.
+        away_team: Away team abbreviation.
+        game_date: Game date used to locate the row.
+
+    Returns:
+        Week number (1–18), or 9 as fallback.
+    """
+    if game_date is not None:
+        row = schedules[
+            (schedules["home_team"] == home_team)
+            & (schedules["away_team"] == away_team)
+            & (pd.to_datetime(schedules["gameday"]).dt.date == game_date)
+        ]
+        if not row.empty:
+            return int(row.iloc[0]["week"])
+    return 9
+
+
 def _run_factors(
     home_team: str,
     away_team: str,
     season: int,
     schedules: pd.DataFrame,
+    team_stats: pd.DataFrame,
     game_date: date | None,
     weights: dict[str, float],
 ) -> list[FactorResult]:
@@ -98,20 +130,23 @@ def _run_factors(
         away_team: Away team abbreviation (e.g. 'BUF').
         season: NFL season year.
         schedules: Pre-loaded schedules DataFrame.
+        team_stats: Per-team per-game stats from load_team_game_stats().
         game_date: Kickoff date; None silently skips weather factor.
         weights: Factor name → weight mapping. Keys must match factor names
-                 returned by each factor's calculate() (e.g. 'recent_form').
+                 returned by each factor's calculate() (e.g. 'form').
 
     Returns:
         Normalised list of FactorResult with weights from the provided dict.
     """
+    week = _derive_week(schedules, home_team, away_team, game_date)
+
     raw: list[FactorResult] = [
-        recent_form.calculate(schedules, home_team, away_team, game_date=game_date),
+        form.calculate(schedules, team_stats, home_team, away_team, week, season, game_date=game_date),
         ats_form.calculate(schedules, home_team, away_team, game_date=game_date),
-        head_to_head.calculate(schedules, home_team, away_team, game_date=game_date),
+        rest_advantage.calculate(schedules, home_team, away_team, game_date=game_date),
         betting_lines.calculate(home_team, away_team, game_date=game_date),
         coaching_matchup.calculate(schedules, home_team, away_team, season, game_date=game_date),
-        weather_factor.calculate(home_team, game_date),
+        weather_factor.calculate(schedules, home_team, away_team, game_date),
     ]
 
     # Override weights from the provided profile.
@@ -144,6 +179,7 @@ def predict(
     away_team: str,
     season: int,
     schedules: pd.DataFrame | None = None,
+    team_stats: pd.DataFrame | None = None,
     game_date: date | None = None,
 ) -> PredictionResult:
     """Generate a prediction for a single NFL matchup.
@@ -154,6 +190,8 @@ def predict(
         season: NFL season year (e.g. 2024).
         schedules: Pre-loaded schedules DataFrame. If None, loads automatically.
                    Pass this when calling predict() in a loop to avoid re-loading.
+        team_stats: Per-team per-game stats DataFrame. If None, loads automatically.
+                    Pass this when calling predict() in a loop to avoid re-loading.
         game_date: Kickoff date. Required for weather scoring; omitting it
                    silently skips the weather factor.
 
@@ -166,7 +204,11 @@ def predict(
         seasons = list(range(2015, season + 1))
         schedules = load_schedules(seasons)
 
-    normalized = _run_factors(home_team, away_team, season, schedules, game_date, settings.weights)
+    if team_stats is None:
+        seasons = list(range(2015, season + 1))
+        team_stats = load_team_game_stats(seasons)
+
+    normalized = _run_factors(home_team, away_team, season, schedules, team_stats, game_date, settings.weights)
     weighted_sum = sum(f.contribution for f in normalized)
 
     predicted_winner = home_team if weighted_sum >= 0 else away_team
@@ -186,6 +228,7 @@ def predict_cover(
     away_team: str,
     season: int,
     schedules: pd.DataFrame | None = None,
+    team_stats: pd.DataFrame | None = None,
     game_date: date | None = None,
 ) -> CoverPredictionResult:
     """Generate a spread-cover prediction for a single NFL matchup.
@@ -199,6 +242,7 @@ def predict_cover(
         away_team: Away team abbreviation (e.g. 'BUF').
         season: NFL season year (e.g. 2024).
         schedules: Pre-loaded schedules DataFrame. If None, loads automatically.
+        team_stats: Per-team per-game stats DataFrame. If None, loads automatically.
         game_date: Kickoff date. Required for spread lookup and weather scoring.
 
     Returns:
@@ -211,8 +255,12 @@ def predict_cover(
         seasons = list(range(2015, season + 1))
         schedules = load_schedules(seasons)
 
+    if team_stats is None:
+        seasons = list(range(2015, season + 1))
+        team_stats = load_team_game_stats(seasons)
+
     normalized = _run_factors(
-        home_team, away_team, season, schedules, game_date, settings.cover_weights
+        home_team, away_team, season, schedules, team_stats, game_date, settings.cover_weights
     )
     weighted_sum = sum(f.contribution for f in normalized)
 

@@ -95,7 +95,7 @@ def get_cover_accuracy(
             cached = score_cache[cache_key]
             weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
             _stored = cached.get("spread")
-            spread: float | None = -float(_stored) if _stored is not None else None
+            spread: float | None = float(_stored) if _stored is not None else None
             if spread is None:
                 continue
             if actual_margin == spread:

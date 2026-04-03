@@ -314,7 +314,7 @@ class TestGetAccuracy:
         ):
             resp = client.get("/api/v1/accuracy", params={"season": 2024})
         by_tier = resp.json()["by_tier"]
-        valid_tiers = {"50-60", "60-70", "70-80", "80+"}
+        valid_tiers = {"50-60", "60-65", "65-80", "80+"}
         for entry in by_tier:
             assert entry["tier"] in valid_tiers
             assert entry["total"] > 0

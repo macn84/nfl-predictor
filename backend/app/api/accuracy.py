@@ -55,17 +55,17 @@ class AccuracyResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_TIER_ORDER = ["50-60", "60-70", "70-80", "80+"]
+_TIER_ORDER = ["50-60", "60-65", "65-80", "80+"]
 
 
 def _confidence_tier(confidence: float) -> str:
     """Bucket a confidence score into a display tier label."""
     if confidence >= 80:
         return "80+"
-    if confidence >= 70:
-        return "70-80"
+    if confidence >= 65:
+        return "65-80"
     if confidence >= 60:
-        return "60-70"
+        return "60-65"
     return "50-60"
 
 

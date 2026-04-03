@@ -41,15 +41,24 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `data/spreads.py` | Historical closing-line spreads loader. Reads nflverse CSVs from `data/spreads/nfl_{season}_spreads.csv` (2015–2025). `get_spread(home, away, date)` returns home-team spread or `None`. |
 | `prediction/engine.py` | `predict()` → `PredictionResult`; `predict_cover()` → `CoverPredictionResult`. Both call shared `_run_factors(weights)`. |
 | `prediction/models.py` | Pydantic types: `FactorResult`, `PredictionResult`, `CoverPredictionResult` |
-| `prediction/calibration.py` | `MARGIN_SLOPE` / `MARGIN_INTERCEPT` constants for cover margin calibration. Update after each season-end optimiser run. |
-| `prediction/factors/recent_form.py` | Last N games, recency-weighted geometric decay |
+| `prediction/calibration.py` | Re-exports `MARGIN_SLOPE` / `MARGIN_INTERCEPT` from `settings` (loaded from `.env`) for backwards-compatible imports. Update values in `.env` after each season-end optimiser run. |
+| `prediction/factors/form.py` | Unified form factor: W/L record + scoring differential + Net Yards Per Play, each recency-weighted with geometric decay. Three sub-factors averaged into one score. |
 | `prediction/factors/ats_form.py` | Recent ATS cover rate vs. closing spread (last N games with spread data). Defaults to `weight=0.0` — enable in `.env`. |
-| `prediction/factors/head_to_head.py` | Historical meeting results |
+| `prediction/factors/rest_advantage.py` | Days-since-last-game advantage; asymmetric — short week penalised more than bye rewarded. Defaults to `weight=0.0` — enable in `.env`. |
 | `prediction/factors/betting_lines.py` | The Odds API point spread (live) or historical closing spread via `spreads.py` (past games) |
-| `prediction/factors/coaching_matchup.py` | Three sub-signals averaged: home coach vs. opponent record, away coach vs. opponent record (inverted), direct coach H2H. Defaults to `weight=0.0` — enable in `.env`. |
-| `prediction/factors/weather_factor.py` | Home familiarity edge in adverse outdoor conditions (rain/snow/cold). Dome games score 0. Score range 0–20. Defaults to `weight=0.0` — enable in `.env`. |
+| `prediction/factors/coaching_matchup.py` | Multiple sub-signals averaged. Defaults to `weight=0.0` — enable in `.env`. |
+| `prediction/factors/weather_factor.py` | Home familiarity edge in adverse outdoor conditions (rain/snow/cold). Dome games score 0. Defaults to `weight=0.0` — enable in `.env`. |
 
 All factors produce a score **-100 to +100** (positive = home team advantage). Engine normalises weights, maps weighted sum → **0–100 confidence**.
+
+### ⚠️ Spread sign convention — do not break this
+
+This has been silently reversed multiple times. Before touching any spread-related code:
+
+- `get_spread()` and the `spread` field in `score_cache.json` use **positive = home favoured** (nflverse convention, confirmed by CSV: KC home vs BAL → KC point = +3.0).
+- The Odds API uses **negative = home favoured** (standard bookmaker notation). `_find_live_spread()` in `betting_lines.py` negates the API value to convert to nflverse convention.
+- `result` column from nflreadpy = `home_score − away_score`. Home covers when `actual_margin > spread`.
+- **Never negate the cached `spread` field when reading from `score_cache.json`** — it is stored as-is from `get_spread()`. Past bug: `cover_accuracy.py` negated it on read, silently inverting all cover accuracy results.
 
 ### Weight override logic in `_run_factors()`
 
@@ -88,9 +97,11 @@ Do not simplify this logic — the two cases are intentionally different.
 
 | File | Purpose |
 |------|---------|
-| `backtest.py` | CLI: runs completed season games through the engine with `game_date` gating (no leakage). `--mode winner\|cover`, `--weeks 1-9`, `--verbose`. Uses `data/score_cache.json` when present for fast weight-sweep mode. `--json` flag emits `AccuracyResponse`-shaped JSON for piping. |
-| `optimise_weights.py` | Grid-searches optimal factor weights. Phases: build score cache → calibrate margin via linear regression → grid search all weight combos (recent_form fixed at 1.0, 5 others vary) → validate top-5 on out-of-sample seasons. Default: train 2015–2022, val 2023. Uses `confidence_weighted_score()` with precision constraint. Writes `data/optimiser_results.json`. Flags: `--rebuild-cache`, `--dry-run`, `--train-seasons`, `--val-seasons`, `--step`. |
+| `backtest.py` | CLI: runs completed season games through the engine with `game_date` gating (no leakage). `--mode winner\|cover`, `--weeks 1-9`, `--verbose`, `--exclude-weeks`, `--exclude-final-week`, `--min-confidence`. Uses `data/score_cache.json` when present for fast weight-sweep mode. `--json` flag emits `AccuracyResponse`-shaped JSON for piping. |
+| `optimise_weights.py` | Grid-searches optimal factor weights. Phases: build score cache → calibrate margin via linear regression → grid search all weight combos (one factor grounded at 1.0, others vary) → validate top-5 on out-of-sample seasons. Default: train 2015–2022, val 2023. Uses `confidence_weighted_score()` with precision constraint. Writes `data/optimiser_results.json`. Flags: `--rebuild-cache`, `--dry-run`, `--train-seasons`, `--val-seasons`, `--step`, `--ground`, `--exclude-final-week`, `--half-week1`, `--full-history`. |
 | `smoke_test.py` | Quick end-to-end sanity check: loads real data, runs winner + cover prediction, prints factor table. No assertions. Flags: `--home`, `--away`, `--season`, `--date`. |
+| `analyse_confidence.py` | Confidence calibration analysis using optimiser results + score cache. Prints train/val accuracy by confidence bucket. Flags: `--target winner\|cover`, `--rank`. |
+| `add_seasons_to_cache.py` | Incrementally adds historical seasons to `score_cache.json` without wiping existing entries. Flags: `--seasons`, `--dry-run`. |
 
 ### Dev Tooling
 

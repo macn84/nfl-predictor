@@ -12,7 +12,7 @@ export const fixtureGame: GamePrediction = {
   locked: false,
   factors: [
     {
-      name: 'recent_form',
+      name: 'form',
       score: 40.0,
       weight: 0.333,
       contribution: 13.3,
@@ -26,11 +26,11 @@ export const fixtureGame: GamePrediction = {
       supporting_data: { home_ats_rate: 0.7, away_ats_rate: 0.5 },
     },
     {
-      name: 'head_to_head',
+      name: 'rest_advantage',
       score: 33.3,
       weight: 0.333,
       contribution: 11.1,
-      supporting_data: { home_wins: 3, away_wins: 2, meetings: 5 },
+      supporting_data: { home_rest_days: 7, away_rest_days: 4 },
     },
     {
       name: 'betting_lines',

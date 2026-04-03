@@ -2,7 +2,7 @@
 refresh.py - Data refresh endpoint.
 
 POST /api/v1/refresh — re-download schedule, weekly stats, and roster data
-                        for the given season (and 3 prior seasons for h2h history).
+                        for the given season (and 3 prior seasons for historical context).
 """
 
 from fastapi import APIRouter

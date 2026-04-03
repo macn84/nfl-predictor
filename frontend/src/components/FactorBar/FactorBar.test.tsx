@@ -3,7 +3,7 @@ import type { FactorResult } from '../../api/types'
 import { FactorBar } from './FactorBar'
 
 const activeFactors: FactorResult[] = [
-  { name: 'recent_form', score: 40.0, weight: 0.333, contribution: 13.3, supporting_data: {} },
+  { name: 'form', score: 40.0, weight: 0.333, contribution: 13.3, supporting_data: {} },
   { name: 'ats_form', score: -20.0, weight: 0.333, contribution: -6.7, supporting_data: {} },
 ]
 
@@ -18,7 +18,7 @@ const skippedFactor: FactorResult = {
 describe('FactorBar', () => {
   it('renders factor label', () => {
     render(<FactorBar factor={activeFactors[0]} />)
-    expect(screen.getByText('Recent Form')).toBeInTheDocument()
+    expect(screen.getByText('Form')).toBeInTheDocument()
   })
 
   it('shows positive score with + prefix', () => {

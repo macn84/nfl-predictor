@@ -20,12 +20,14 @@ make install
 | Variable | Purpose |
 |----------|---------|
 | `ODDS_API_KEY` | Free key from [the-odds-api.com](https://the-odds-api.com/) — betting lines factor is skipped if absent |
-| `WEIGHT_RECENT_FORM` / `_ATS_FORM` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Winner-mode factor weights (engine normalises them, so relative values are what matter) |
-| `WEIGHT_COACHING_MATCHUP` / `WEIGHT_WEATHER` | Winner-mode coaching and weather weights (both default to `0.0` — disabled until you set a value) |
-| `COVER_WEIGHT_RECENT_FORM` / `_ATS_FORM` / `_HEAD_TO_HEAD` / `_BETTING_LINES` | Cover-mode factor weights (independent profile from winner weights) |
+| `WEIGHT_FORM` / `WEIGHT_ATS_FORM` / `WEIGHT_REST_ADVANTAGE` / `WEIGHT_BETTING_LINES` | Winner-mode factor weights (engine normalises them; relative values are what matter) |
+| `WEIGHT_COACHING_MATCHUP` / `WEIGHT_WEATHER` | Winner-mode coaching and weather weights (default `0.0` — disabled until set) |
+| `COVER_WEIGHT_FORM` / `COVER_WEIGHT_ATS_FORM` / `COVER_WEIGHT_REST_ADVANTAGE` / `COVER_WEIGHT_BETTING_LINES` | Cover-mode factor weights (independent profile from winner weights) |
 | `COVER_WEIGHT_COACHING_MATCHUP` / `COVER_WEIGHT_WEATHER` | Cover-mode coaching and weather weights |
-| `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `ATS_FORM_GAMES` / `H2H_GAMES` | Factor calibration parameters |
-| `COACHING_MIN_GAMES` | Minimum games in a coaching record before that sub-signal is used (default `3`) |
+| `MARGIN_SLOPE` / `MARGIN_INTERCEPT` | Cover margin calibration constants (from optimiser run — update each season) |
+| `RECENT_FORM_GAMES` / `RECENT_FORM_DECAY` / `ATS_FORM_GAMES` / `SCORING_DIFFERENTIAL_GAMES` | Factor lookback windows and decay rate |
+| `NYPP_GAMES` / `NYPP_SANYPP_THRESHOLD_WEEK` | Net Yards Per Play lookback and schedule-adjustment week |
+| `COACHING_MIN_GAMES` / `WEATHER_MIN_GAMES` | Minimum games in a record before a sub-signal is trusted |
 | `CONFIDENCE_FLOOR` / `CONFIDENCE_CEILING` | Clamp the output confidence score (optional; defaults preserve full 50–100 range) |
 | `COVER_EDGE_THRESHOLD` | Confidence floor for high-conviction cover picks — sets the threshold for the EDGE badge and filter in the UI |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` | Login credentials — `ADMIN_PASSWORD_HASH` is a bcrypt hash (see `.env.example` for generation command) |
@@ -112,9 +114,9 @@ The winner and cover modes use independent weight profiles so each can be tuned 
 
 | Factor | Source |
 |--------|--------|
-| Recent form | Last N games, recency-weighted with geometric decay |
+| Form | Last N games W/L + scoring differential + Net Yards Per Play, recency-weighted with geometric decay |
 | ATS form | Recent cover rate vs. closing spread (last N games with spread data) |
-| Head-to-head | Historical meetings across seasons |
+| Rest advantage | Days since last game; short week penalised more than bye rewarded (disabled by default) |
 | Betting lines | The Odds API point spread (live) or nflverse closing spreads (historical) |
 | Coaching matchup | Coach vs. opponent record + direct coach head-to-head (requires `data/nfl_coaches_full_dataset.csv`; disabled by default) |
 | Weather | Game-time conditions via Open-Meteo (free, no key); dome games score 0; adverse conditions apply a small home advantage (disabled by default) |
@@ -173,7 +175,7 @@ VITE_APP_TITLE=Your App Name
 VITE_APP_FAVICON=/favicon.png
 ```
 
-If you maintain a private overlay repo alongside this one, add a `make setup-private` target (or extend the existing one) that automates steps 3–4.
+If you maintain a private overlay repo alongside this one, use `make setup-private` to automate steps 3–4.
 
 ## Project structure
 
@@ -202,8 +204,8 @@ backend/
 │   └── prediction/
 │       ├── engine.py          # predict() and predict_cover(); shared _run_factors()
 │       ├── models.py          # Pydantic types (FactorResult, PredictionResult, CoverPredictionResult)
-│       ├── calibration.py     # margin calibration constants for cover mode
-│       └── factors/           # one module per factor (recent_form, ats_form, head_to_head, betting_lines, coaching_matchup, weather_factor)
+│       ├── calibration.py     # margin calibration constants for cover mode (loaded from .env)
+│       └── factors/           # one module per factor (form, ats_form, rest_advantage, betting_lines, coaching_matchup, weather_factor)
 ├── tests/
 └── pyproject.toml
 frontend/

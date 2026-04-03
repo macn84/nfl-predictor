@@ -8,13 +8,12 @@ import pandas as pd
 import pytest
 
 from app.data.coaches import CoachRecord
-from app.data.weather import GameWeather, WeatherCondition
 from app.prediction.factors import (
     ats_form,
     betting_lines,
     coaching_matchup,
-    head_to_head,
-    recent_form,
+    form,
+    rest_advantage,
     weather_factor,
 )
 from app.prediction.models import FactorResult
@@ -44,77 +43,120 @@ _H2H_GAMES_HOME_WINS = [
 ]
 
 
-def _make_game_weather(
-    condition: WeatherCondition = WeatherCondition.SUNNY,
-    source: str = "archive",
-    temperature_f: float | None = 65.0,
-    wind_speed_kph: float | None = 12.0,
-    is_dome: bool = False,
-) -> GameWeather:
-    return GameWeather(
-        condition=condition,
-        temperature_c=(temperature_f - 32) * 5 / 9 if temperature_f is not None else None,
-        temperature_f=temperature_f,
-        wind_speed_kph=wind_speed_kph,
-        is_dome=is_dome,
-        stadium="Arrowhead Stadium",
-        source=source,
-    )
+
+def _make_team_stats(rows: list[dict]) -> pd.DataFrame:
+    """Build a minimal team_stats DataFrame for form factor tests."""
+    return pd.DataFrame(rows)
 
 
-class TestRecentForm:
-    def test_returns_factor_result(self, schedules):
-        result = recent_form.calculate(schedules, "KC", "BUF")
-        assert isinstance(result, FactorResult)
-        assert result.name == "recent_form"
+def _empty_team_stats() -> pd.DataFrame:
+    cols = ["season", "week", "team", "opponent_team", "season_type",
+            "passing_yards", "rushing_yards", "attempts", "carries"]
+    return pd.DataFrame(columns=cols)
+
+
+class TestForm:
+    def _make_schedules_with_scores(self) -> pd.DataFrame:
+        """Fixture with KC strong (home wins) and BUF weaker (away losses)."""
+        rows = []
+        for i in range(5):
+            rows.append({
+                "season": 2024, "week": i + 1,
+                "gameday": f"2024-09-{8 + i * 7:02d}",
+                "home_team": "KC", "away_team": "LV",
+                "result": 14.0, "home_score": 35.0, "away_score": 21.0,
+            })
+        for i in range(5):
+            rows.append({
+                "season": 2024, "week": i + 1,
+                "gameday": f"2024-09-{9 + i * 7:02d}",
+                "home_team": "MIA", "away_team": "BUF",
+                "result": 3.0, "home_score": 20.0, "away_score": 17.0,
+            })
+        return pd.DataFrame(rows)
+
+    def test_returns_correct_name(self, schedules):
+        result = form.calculate(schedules, _empty_team_stats(), "KC", "BUF", week=5, season=2024)
+        assert result.name == "form"
 
     def test_score_in_range(self, schedules):
-        result = recent_form.calculate(schedules, "KC", "BUF")
+        result = form.calculate(schedules, _empty_team_stats(), "KC", "BUF", week=5, season=2024)
         assert -100.0 <= result.score <= 100.0
 
     def test_contribution_equals_score_times_weight(self, schedules):
-        result = recent_form.calculate(schedules, "KC", "BUF")
+        result = form.calculate(schedules, _empty_team_stats(), "KC", "BUF", week=5, season=2024)
         assert abs(result.contribution - result.score * result.weight) < 1e-9
 
-    def test_favours_team_with_better_record(self, schedules):
-        # KC won 4 of last 5; BUF won 2 of last 5 in the fixture
-        result = recent_form.calculate(schedules, "KC", "BUF", n=5)
-        assert result.score > 0, "KC's better recent form should produce a positive score"
+    def test_nypp_skipped_on_empty_team_stats(self, schedules):
+        """When team_stats is empty, NYPP sub-factor is skipped; sub-weights rebalance 50/50."""
+        result = form.calculate(schedules, _empty_team_stats(), "KC", "BUF", week=9, season=2024)
+        assert result.supporting_data["nypp_skipped"] is True
+        assert result.supporting_data["sub_weights"]["wl"] == 0.5
+        assert result.supporting_data["sub_weights"]["nypp"] == 0.0
 
-    def test_no_games_returns_neutral(self):
-        cols = ["season", "week", "gameday", "home_team", "away_team", "result"]
-        empty = pd.DataFrame(columns=cols)
-        result = recent_form.calculate(empty, "KC", "BUF")
-        assert result.score == 0.0
+    def test_favours_team_with_better_record(self):
+        """KC with strong home W/L record should produce a positive form score."""
+        sched = self._make_schedules_with_scores()
+        result = form.calculate(sched, _empty_team_stats(), "KC", "BUF", week=6, season=2024)
+        assert result.score > 0
 
-    def test_supporting_data_present(self, schedules):
-        result = recent_form.calculate(schedules, "KC", "BUF")
-        assert "home_weighted_win_pct" in result.supporting_data
-        assert "away_weighted_win_pct" in result.supporting_data
+    def test_nypp_sub_factor_present_with_data(self):
+        """When team_stats has data, NYPP sub-factor is used and nypp_skipped is False."""
+        team_stats_rows = []
+        for i in range(1, 6):
+            team_stats_rows.append({
+                "season": 2024, "week": i, "team": "KC", "opponent_team": "LV",
+                "season_type": "REG",
+                "passing_yards": 250.0, "rushing_yards": 120.0,
+                "attempts": 35.0, "carries": 25.0,
+            })
+            team_stats_rows.append({
+                "season": 2024, "week": i, "team": "LV", "opponent_team": "KC",
+                "season_type": "REG",
+                "passing_yards": 200.0, "rushing_yards": 80.0,
+                "attempts": 30.0, "carries": 20.0,
+            })
+            team_stats_rows.append({
+                "season": 2024, "week": i, "team": "BUF", "opponent_team": "MIA",
+                "season_type": "REG",
+                "passing_yards": 220.0, "rushing_yards": 90.0,
+                "attempts": 32.0, "carries": 22.0,
+            })
+            team_stats_rows.append({
+                "season": 2024, "week": i, "team": "MIA", "opponent_team": "BUF",
+                "season_type": "REG",
+                "passing_yards": 210.0, "rushing_yards": 85.0,
+                "attempts": 31.0, "carries": 21.0,
+            })
+        ts = pd.DataFrame(team_stats_rows)
+        sched = self._make_schedules_with_scores()
+        result = form.calculate(sched, ts, "KC", "BUF", week=6, season=2024)
+        assert result.supporting_data["nypp_skipped"] is False
+        assert result.supporting_data["sub_weights"]["nypp"] == 0.5
 
-    def test_game_date_filter_excludes_later_games(self):
-        """A KC loss played after game_date must not affect KC's recent form score."""
+    def test_supporting_data_keys_present(self, schedules):
+        result = form.calculate(schedules, _empty_team_stats(), "KC", "BUF", week=5, season=2024)
+        for key in ("wl_score", "scoring_diff_score", "nypp_score",
+                    "nypp_skipped", "sub_weights", "week", "season"):
+            assert key in result.supporting_data
+
+    def test_game_date_filter(self):
+        """Games after game_date must not affect W/L form."""
         rows = [
-            # KC wins before cutoff
-            {"season": 2024, "week": 1, "gameday": "2024-09-08", "home_team": "KC",
-             "away_team": "BUF", "result": 7.0},
-            {"season": 2024, "week": 2, "gameday": "2024-09-15", "home_team": "KC",
-             "away_team": "LV", "result": 10.0},
-            # KC blowout loss AFTER cutoff — should be invisible with game_date filter
-            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "BUF",
-             "away_team": "KC", "result": 40.0},
+            {"season": 2024, "week": 1, "gameday": "2024-09-08",
+             "home_team": "KC", "away_team": "BUF", "result": 7.0,
+             "home_score": 21.0, "away_score": 14.0},
+            {"season": 2024, "week": 10, "gameday": "2024-11-10",
+             "home_team": "BUF", "away_team": "KC", "result": 40.0,
+             "home_score": 40.0, "away_score": 0.0},
         ]
         df = pd.DataFrame(rows)
         cutoff = date(2024, 10, 1)
-        filtered = recent_form.calculate(df, "KC", "BUF", game_date=cutoff)
-        unfiltered = recent_form.calculate(df, "KC", "BUF")
-        # The post-cutoff KC loss tanks KC's score when unfiltered
+        filtered = form.calculate(df, _empty_team_stats(), "KC", "BUF",
+                                  week=11, season=2024, game_date=cutoff)
+        unfiltered = form.calculate(df, _empty_team_stats(), "KC", "BUF",
+                                    week=11, season=2024)
         assert filtered.score > unfiltered.score
-        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
-
-    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
-        result = recent_form.calculate(schedules, "KC", "BUF", game_date=None)
-        assert result.supporting_data["game_date_filter"] is None
 
 
 class TestAtsForm:
@@ -212,7 +254,9 @@ class TestAtsForm:
         filtered = ats_form.calculate(df, "KC", "BUF", game_date=cutoff, n=10, min_games=1)
         unfiltered = ats_form.calculate(df, "KC", "BUF", n=10, min_games=1)
         # Filtered: KC covers 5/5 = 1.0; unfiltered: KC covers 5/6 ≈ 0.833
-        assert filtered.supporting_data["home_ats_rate"] > unfiltered.supporting_data["home_ats_rate"]
+        assert (
+            filtered.supporting_data["home_ats_rate"] > unfiltered.supporting_data["home_ats_rate"]
+        )
         assert filtered.supporting_data["game_date_filter"] == "2024-10-15"
 
     def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules, monkeypatch):
@@ -229,62 +273,81 @@ class TestAtsForm:
             assert key in sd
 
 
-class TestHeadToHead:
-    def test_returns_factor_result(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "BUF")
-        assert isinstance(result, FactorResult)
-        assert result.name == "head_to_head"
+class TestRestAdvantage:
+    def _make_schedules(self, home_last: str, away_last: str) -> pd.DataFrame:
+        """Build a minimal schedules fixture with controlled last-game dates."""
+        return pd.DataFrame([
+            # Home team's last completed game
+            {"season": 2024, "week": 1, "gameday": home_last,
+             "home_team": "KC", "away_team": "LV", "result": 7.0,
+             "home_score": 27, "away_score": 20},
+            # Away team's last completed game
+            {"season": 2024, "week": 1, "gameday": away_last,
+             "home_team": "MIA", "away_team": "BUF", "result": -3.0,
+             "home_score": 17, "away_score": 20},
+        ])
 
-    def test_score_in_range(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "BUF")
+    def test_returns_factor_result(self):
+        df = self._make_schedules("2024-09-05", "2024-09-01")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
+        assert isinstance(result, FactorResult)
+        assert result.name == "rest_advantage"
+
+    def test_score_in_range(self):
+        df = self._make_schedules("2024-09-02", "2024-09-02")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
         assert -100.0 <= result.score <= 100.0
 
-    def test_contribution_equals_score_times_weight(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "BUF")
+    def test_contribution_equals_score_times_weight(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.prediction.factors.rest_advantage.settings.weight_rest_advantage", 0.10
+        )
+        df = self._make_schedules("2024-09-02", "2024-09-02")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
         assert abs(result.contribution - result.score * result.weight) < 1e-9
 
-    def test_meetings_count_in_supporting_data(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "BUF", n=10)
-        assert result.supporting_data["meetings_found"] == 6  # 6 KC-BUF matchups in fixture
+    def test_short_week_home_penalised(self):
+        """Home on 4-day short week vs away on normal 7 days → negative score."""
+        # game_date = 2024-09-09; home last played 2024-09-05 (4 days); away 2024-09-02 (7 days)
+        df = self._make_schedules("2024-09-05", "2024-09-02")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
+        assert result.score < 0, "Home team on short week should produce negative score"
 
-    def test_no_meetings_returns_neutral(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "GB")
+    def test_bye_week_home_rewarded(self):
+        """Home on 14-day bye vs away on normal 7 days → positive score."""
+        # game_date = 2024-09-15; home last played 2024-09-01 (14 days); away 2024-09-08 (7 days)
+        df = self._make_schedules("2024-09-01", "2024-09-08")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 15))
+        assert result.score > 0, "Home team on bye should produce positive score"
+
+    def test_both_short_week_is_neutral(self):
+        """Both teams on 4-day short week → score = 0."""
+        df = self._make_schedules("2024-09-05", "2024-09-05")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
         assert result.score == 0.0
-        assert result.supporting_data["meetings_found"] == 0
 
-    def test_dominant_history_produces_positive_score(self, schedules):
-        # KC: 2 wins as home team, 1 loss as away (BUF home win); 1 loss
-        # In our fixture: KC-home games vs BUF: W(wk1/24), W(wk6/23), W(wk5/22), L(wk5/21)
-        # KC wins 3 of 4 h2h as home team → score > 0
-        result = head_to_head.calculate(schedules, "KC", "BUF")
-        assert result.score > 0
+    def test_skips_when_game_date_none(self):
+        df = self._make_schedules("2024-09-02", "2024-09-02")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=None)
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
 
-    def test_game_date_filter_excludes_later_meetings(self):
-        """A KC loss to BUF after game_date must not reduce KC's h2h win pct."""
-        rows = [
-            # KC wins vs BUF before cutoff
-            {"season": 2023, "week": 6, "gameday": "2023-10-15", "home_team": "KC",
-             "away_team": "BUF", "result": 3.0},
-            {"season": 2022, "week": 5, "gameday": "2022-10-09", "home_team": "KC",
-             "away_team": "BUF", "result": 24.0},
-            # KC loss to BUF AFTER cutoff
-            {"season": 2024, "week": 10, "gameday": "2024-11-10", "home_team": "KC",
-             "away_team": "BUF", "result": -14.0},
-        ]
-        df = pd.DataFrame(rows)
-        cutoff = date(2024, 10, 1)
-        filtered = head_to_head.calculate(df, "KC", "BUF", game_date=cutoff)
-        unfiltered = head_to_head.calculate(df, "KC", "BUF")
-        # KC h2h win pct should be higher when post-cutoff loss is excluded
-        assert (
-            filtered.supporting_data["home_team_h2h_win_pct"]
-            > unfiltered.supporting_data["home_team_h2h_win_pct"]
-        )
-        assert filtered.supporting_data["game_date_filter"] == "2024-10-01"
+    def test_skips_when_no_prior_games(self):
+        """First game of the season for both teams → no rest data → skip."""
+        cols = ["season", "week", "gameday", "home_team", "away_team",
+                "result", "home_score", "away_score"]
+        empty = pd.DataFrame(columns=cols)
+        result = rest_advantage.calculate(empty, "KC", "BUF", game_date=date(2024, 9, 8))
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
 
-    def test_game_date_filter_none_sets_null_in_supporting_data(self, schedules):
-        result = head_to_head.calculate(schedules, "KC", "BUF", game_date=None)
-        assert result.supporting_data["game_date_filter"] is None
+    def test_supporting_data_fields_present(self):
+        df = self._make_schedules("2024-09-02", "2024-09-02")
+        result = rest_advantage.calculate(df, "KC", "BUF", game_date=date(2024, 9, 9))
+        sd = result.supporting_data
+        for key in ("home_rest_days", "away_rest_days", "home_rest_edge",
+                    "away_rest_edge", "game_date_filter"):
+            assert key in sd
 
 
 class TestBettingLines:
@@ -390,78 +453,128 @@ class TestCoachingMatchup:
         assert "coach_h2h" in sd
 
 
+def _make_weather_schedules(
+    home_team: str,
+    away_team: str,
+    game_date: str,
+    roof: str = "outdoors",
+    temp: float = 65.0,
+    wind: float = 5.0,
+    extra_rows: list | None = None,
+) -> pd.DataFrame:
+    """Build a minimal schedules DataFrame for weather factor tests."""
+    base = [{
+        "season": 2024, "week": 1, "gameday": game_date,
+        "home_team": home_team, "away_team": away_team,
+        "result": 7.0, "home_score": 27, "away_score": 20,
+        "roof": roof, "temp": temp, "wind": wind,
+    }]
+    if extra_rows:
+        base.extend(extra_rows)
+    return pd.DataFrame(base)
+
+
 class TestWeather:
     def test_skips_when_game_date_none(self):
-        result = weather_factor.calculate("KC", None)
+        df = _make_weather_schedules("KC", "BUF", "2024-09-08")
+        result = weather_factor.calculate(df, "KC", "BUF", None)
         assert result.weight == 0.0
         assert result.supporting_data["skipped"] is True
 
-    def test_dome_returns_zero_score(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.DOME, source="dome",
-                is_dome=True, temperature_f=None, wind_speed_kph=None,
-            ),
-        )
+    def test_skips_when_game_not_in_schedules(self):
+        df = pd.DataFrame(columns=["season", "week", "gameday", "home_team",
+                                   "away_team", "result", "roof", "temp", "wind"])
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 9, 8))
+        assert result.weight == 0.0
+        assert result.supporting_data["skipped"] is True
+
+    def test_dome_returns_zero_score_not_skipped(self, monkeypatch):
         monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
-        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        df = _make_weather_schedules("KC", "BUF", "2024-09-08", roof="dome", temp=None, wind=None)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 9, 8))
         assert result.score == 0.0
         assert result.weight == pytest.approx(0.10)
+        assert result.supporting_data.get("skipped") is not True
 
-    def test_snow_cold_returns_positive_score(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.SNOW, source="archive", temperature_f=28.0,
-            ),
-        )
-        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
-        result = weather_factor.calculate("KC", date(2024, 1, 14))
-        assert result.score == pytest.approx(25.0)
-
-    def test_api_error_skips_factor(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.UNKNOWN, source="error"
-            ),
-        )
-        result = weather_factor.calculate("KC", date(2024, 9, 8))
+    def test_unknown_weather_skips(self):
+        df = _make_weather_schedules("KC", "BUF", "2024-09-08",
+                                     roof="outdoors", temp=None, wind=None)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 9, 8))
         assert result.weight == 0.0
         assert result.supporting_data["skipped"] is True
 
     def test_score_in_range(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.RAIN, source="forecast"
-            ),
-        )
-        result = weather_factor.calculate("KC", date(2025, 1, 5))
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
+        # Cold game with history: KC has played 3+ cold games, BUF has too
+        cold_kc = [
+            {"season": 2023, "week": i, "gameday": f"2023-12-{10+i:02d}",
+             "home_team": "KC", "away_team": "LV", "result": 7.0,
+             "home_score": 27, "away_score": 20, "roof": "outdoors", "temp": 25.0, "wind": 5.0}
+            for i in range(1, 5)
+        ]
+        cold_buf = [
+            {"season": 2023, "week": i, "gameday": f"2023-12-{10+i:02d}",
+             "home_team": "BUF", "away_team": "NE", "result": 3.0,
+             "home_score": 17, "away_score": 14, "roof": "outdoors", "temp": 25.0, "wind": 5.0}
+            for i in range(1, 5)
+        ]
+        df = _make_weather_schedules("KC", "BUF", "2024-01-07",
+                                     roof="outdoors", temp=28.0, wind=5.0,
+                                     extra_rows=cold_kc + cold_buf)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 1, 7))
         assert -100.0 <= result.score <= 100.0
 
     def test_contribution_equals_score_times_weight(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.RAIN, source="archive"
-            ),
-        )
         monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
-        result = weather_factor.calculate("KC", date(2024, 9, 8))
+        df = _make_weather_schedules("KC", "BUF", "2024-09-08",
+                                     roof="outdoors", temp=65.0, wind=5.0)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 9, 8))
         assert abs(result.contribution - result.score * result.weight) < 1e-9
 
     def test_supporting_data_fields_present(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.prediction.factors.weather_factor.get_game_weather_by_date",
-            lambda team, d, **kw: _make_game_weather(
-                condition=WeatherCondition.SUNNY, source="archive"
-            ),
-        )
-        result = weather_factor.calculate("KC", date(2024, 9, 8))
-        sd = result.supporting_data
-        expected_keys = ("condition", "temperature_f", "wind_speed_kph",
-                         "stadium", "source", "is_dome")
-        for key in expected_keys:
-            assert key in sd
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
+        history = [
+            {"season": 2023, "week": i, "gameday": f"2023-09-{10+i:02d}",
+             "home_team": "KC", "away_team": "LV", "result": 5.0,
+             "home_score": 27, "away_score": 22, "roof": "outdoors", "temp": 65.0, "wind": 5.0}
+            for i in range(1, 4)
+        ] + [
+            {"season": 2023, "week": i, "gameday": f"2023-09-{11+i:02d}",
+             "home_team": "BUF", "away_team": "NE", "result": 3.0,
+             "home_score": 20, "away_score": 17, "roof": "outdoors", "temp": 65.0, "wind": 5.0}
+            for i in range(1, 4)
+        ]
+        df = _make_weather_schedules("KC", "BUF", "2024-09-08",
+                                     roof="outdoors", temp=65.0, wind=5.0,
+                                     extra_rows=history)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 9, 8))
+        for key in ("category", "temp_f", "wind_mph", "roof", "home_delta", "away_delta"):
+            assert key in result.supporting_data
+
+    def test_home_team_better_in_cold_scores_higher(self, monkeypatch):
+        """Home team that improves in cold weather vs away team that degrades → positive score."""
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weight_weather", 0.10)
+        monkeypatch.setattr("app.prediction.factors.weather_factor.settings.weather_min_games", 1)
+        # KC: baseline +5, cold games +10 → delta = +5
+        kc_warm = [{"season": 2023, "week": i, "gameday": f"2023-09-{10+i:02d}",
+                     "home_team": "KC", "away_team": "LV", "result": 5.0,
+                     "home_score": 27, "away_score": 22, "roof": "outdoors",
+                     "temp": 70.0, "wind": 5.0} for i in range(1, 5)]
+        kc_cold = [{"season": 2023, "week": 15, "gameday": "2023-12-15",
+                    "home_team": "KC", "away_team": "NE", "result": 10.0,
+                    "home_score": 27, "away_score": 17, "roof": "outdoors",
+                    "temp": 25.0, "wind": 5.0}]
+        # BUF: baseline +5, cold games 0 → delta = -5
+        buf_warm = [{"season": 2023, "week": i, "gameday": f"2023-09-{11+i:02d}",
+                     "home_team": "BUF", "away_team": "MIA", "result": 5.0,
+                     "home_score": 27, "away_score": 22, "roof": "outdoors",
+                     "temp": 70.0, "wind": 5.0} for i in range(1, 5)]
+        buf_cold = [{"season": 2023, "week": 15, "gameday": "2023-12-16",
+                     "home_team": "BUF", "away_team": "PIT", "result": 0.0,
+                     "home_score": 17, "away_score": 17, "roof": "outdoors",
+                     "temp": 25.0, "wind": 5.0}]
+        df = _make_weather_schedules("KC", "BUF", "2024-01-07",
+                                     roof="outdoors", temp=28.0, wind=5.0,
+                                     extra_rows=kc_warm + kc_cold + buf_warm + buf_cold)
+        result = weather_factor.calculate(df, "KC", "BUF", date(2024, 1, 7))
+        assert result.score > 0, "KC improves in cold; BUF degrades → positive score expected"

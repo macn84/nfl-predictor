@@ -5,9 +5,9 @@ interface FactorBarProps {
 }
 
 const FACTOR_LABELS: Record<string, string> = {
-  recent_form: 'Recent Form',
+  form: 'Form',
   ats_form: 'ATS Form',
-  head_to_head: 'Head to Head',
+  rest_advantage: 'Rest Advantage',
   betting_lines: 'Betting Lines',
   coaching_matchup: 'Coaching Matchup',
   weather: 'Weather',

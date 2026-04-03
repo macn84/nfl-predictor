@@ -3,7 +3,7 @@
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 VENV := $(BACKEND_DIR)/.venv
-PYTHON := $(VENV)/bin/python
+PYTHON := $(VENV)/bin/python3
 PIP := $(VENV)/bin/pip
 UVICORN := $(VENV)/bin/uvicorn
 
@@ -50,10 +50,10 @@ dev:
 test: test-backend test-frontend
 
 test-backend:
-	cd $(BACKEND_DIR) && $(PYTHON) -m pytest
+	cd $(BACKEND_DIR) && .venv/bin/python3 -m pytest
 
 test-frontend:
-	cd $(FRONTEND_DIR) && npm test
+	cd $(FRONTEND_DIR) && npx vitest run
 
 lint:
 	$(VENV)/bin/ruff check $(BACKEND_DIR)

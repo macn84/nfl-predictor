@@ -25,7 +25,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.config import settings
 from app.data import accuracy_cache
 from app.data.cache import load_score_cache, write_score_cache
-from app.data.loader import load_rosters, load_schedules, load_weekly_stats
+from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
 from app.data.spreads import get_spread
 from app.prediction.engine import predict
 
@@ -92,6 +92,7 @@ def _add_to_cache(
     season: int,
     game_date: date | None,
     schedules: pd.DataFrame,
+    team_stats: pd.DataFrame,
     cache: dict[str, dict],
 ) -> bool:
     """Run predict() for one game and insert the result into ``cache`` in-place.
@@ -113,7 +114,7 @@ def _add_to_cache(
     if cache_key in cache:
         return False
 
-    pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+    pred = predict(home, away, season, schedules=schedules, team_stats=team_stats, game_date=game_date)
     spread = get_spread(home, away, game_date) if game_date else None
 
     bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
@@ -201,6 +202,7 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     # ------------------------------------------------------------------
     history_seasons = list(range(2015, season + 1))
     schedules = load_schedules(history_seasons, force_refresh=True)
+    team_stats = load_team_game_stats(history_seasons, force_refresh=True)
     load_weekly_stats([season], force_refresh=True)
     load_rosters([season], force_refresh=True)
     accuracy_cache.clear()
@@ -243,7 +245,7 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
         if game_date is None:
             continue
         try:
-            added = _add_to_cache(home, away, season, game_date, schedules, existing)
+            added = _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
             if added:
                 newly_cached += 1
             else:
@@ -281,7 +283,7 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             cache_key = f"{home}-{away}-{game_date}"
             existing.pop(cache_key, None)
             try:
-                _add_to_cache(home, away, season, game_date, schedules, existing)
+                _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
                 week_new += 1
                 newly_cached += 1
             except Exception:

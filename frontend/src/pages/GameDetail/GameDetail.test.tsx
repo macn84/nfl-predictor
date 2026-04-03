@@ -44,8 +44,8 @@ describe('GameDetail', () => {
 
   it('renders factor bars for active factors', () => {
     renderDetail()
-    expect(screen.getByText('Recent Form')).toBeInTheDocument()
-    expect(screen.getByText('Home/Away')).toBeInTheDocument()
+    expect(screen.getByText('Form')).toBeInTheDocument()
+    expect(screen.getByText('Rest Advantage')).toBeInTheDocument()
   })
 
   it('shows loading state', () => {

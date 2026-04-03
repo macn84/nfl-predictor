@@ -50,10 +50,12 @@ class TestWeightedSumToConfidence:
     def test_zero_sum_is_fifty(self):
         assert _weighted_sum_to_confidence(0.0) == 50.0
 
-    def test_max_positive_is_one_hundred(self):
+    def test_max_positive_is_one_hundred(self, monkeypatch):
+        monkeypatch.setattr("app.config.settings.confidence_ceiling", 100.0)
         assert _weighted_sum_to_confidence(100.0) == 100.0
 
-    def test_max_negative_is_one_hundred(self):
+    def test_max_negative_is_one_hundred(self, monkeypatch):
+        monkeypatch.setattr("app.config.settings.confidence_ceiling", 100.0)
         assert _weighted_sum_to_confidence(-100.0) == 100.0
 
     def test_symmetric(self):
@@ -86,7 +88,7 @@ class TestPredict:
         result = predict("KC", "BUF", 2024, schedules=schedules)
         names = {f.name for f in result.factors}
         assert names == {
-            "recent_form", "ats_form", "head_to_head",
+            "form", "ats_form", "rest_advantage",
             "betting_lines", "coaching_matchup", "weather",
         }
 
@@ -97,7 +99,7 @@ class TestPredict:
         assert bl.weight == 0.0
 
     def test_strong_home_team_predicted_as_winner(self, schedules):
-        # In our fixture KC has very strong home record and h2h edge
+        # In our fixture KC has very strong home record
         result = predict("KC", "BUF", 2024, schedules=schedules)
         assert result.predicted_winner == "KC"
 
