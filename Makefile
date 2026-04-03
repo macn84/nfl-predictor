@@ -23,7 +23,7 @@ help:
 install: install-backend install-frontend
 
 install-backend:
-	python3 -m venv $(VENV)
+	/usr/bin/python3 -m venv $(VENV)
 	$(PIP) install -e "$(BACKEND_DIR)[dev]"
 
 install-frontend:
