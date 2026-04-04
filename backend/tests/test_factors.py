@@ -351,17 +351,68 @@ class TestRestAdvantage:
 
 
 class TestBettingLines:
-    def test_skips_without_api_key(self, monkeypatch):
+    def _patch_no_keys(self, monkeypatch):
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.oddspapi_api_key", "")
         monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "")
+
+    def test_skips_without_api_key(self, monkeypatch):
+        self._patch_no_keys(monkeypatch)
         result = betting_lines.calculate("KC", "BUF")
         assert result.weight == 0.0
         assert result.supporting_data["skipped"] is True
 
     def test_returns_factor_result_no_key(self, monkeypatch):
-        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "")
+        self._patch_no_keys(monkeypatch)
         result = betting_lines.calculate("KC", "BUF")
         assert isinstance(result, FactorResult)
         assert result.name == "betting_lines"
+
+    def test_oddspapi_used_first_when_key_set(self, monkeypatch):
+        """OddspaPI is tried before The Odds API when oddspapi_api_key is set."""
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.oddspapi_api_key", "fake-key")
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "")
+        calls: list[str] = []
+
+        def fake_fetch_oddspapi():
+            calls.append("oddspapi")
+            return None  # simulate failure → should skip gracefully
+
+        monkeypatch.setattr("app.prediction.factors.betting_lines._fetch_oddspapi", fake_fetch_oddspapi)
+        result = betting_lines.calculate("KC", "BUF")
+        assert "oddspapi" in calls
+        assert result.supporting_data["skipped"] is True
+
+    def test_oddspapi_source_tagged_in_result(self, monkeypatch):
+        """Result from OddspaPI includes source='oddspapi_live'."""
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.oddspapi_api_key", "fake-key")
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "")
+        monkeypatch.setattr(
+            "app.prediction.factors.betting_lines._fetch_oddspapi",
+            lambda: [{"dummy": True}],
+        )
+        monkeypatch.setattr(
+            "app.prediction.factors.betting_lines._find_oddspapi_spread",
+            lambda data, home, away: (3.0, -110, -110),
+        )
+        result = betting_lines.calculate("KC", "BUF")
+        assert result.supporting_data["source"] == "oddspapi_live"
+        assert result.supporting_data["home_team_spread"] == 3.0
+
+    def test_falls_back_to_odds_api_when_oddspapi_fails(self, monkeypatch):
+        """Falls back to The Odds API when OddspaPI returns None."""
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.oddspapi_api_key", "fake-key")
+        monkeypatch.setattr("app.prediction.factors.betting_lines.settings.odds_api_key", "fake-odds-key")
+        monkeypatch.setattr("app.prediction.factors.betting_lines._fetch_oddspapi", lambda: None)
+        monkeypatch.setattr(
+            "app.prediction.factors.betting_lines._fetch_odds",
+            lambda: [{"dummy": True}],
+        )
+        monkeypatch.setattr(
+            "app.prediction.factors.betting_lines._find_live_spread",
+            lambda data, home, away: (-3.0, -115, -105),
+        )
+        result = betting_lines.calculate("KC", "BUF")
+        assert result.supporting_data["source"] == "odds_api_live"
 
     def test_spread_to_score_positive_spread_is_positive(self):
         from app.prediction.factors.betting_lines import _spread_to_score

@@ -10,7 +10,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 
 ## Stack
 
-- **Backend:** Python 3.11+, FastAPI, SQLite, `nflreadpy`, The Odds API
+- **Backend:** Python 3.11+, FastAPI, SQLite, `nflreadpy`, OddspaPI (primary), The Odds API (fallback)
 - **Frontend:** React 18, TypeScript (strict), Vite, Tailwind
 - **Testing:** pytest (backend), Vitest (frontend)
 - **Dev tooling:** `ruff`, `make`, VS Code tasks
@@ -27,7 +27,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `auth/deps.py` | `get_current_user` (raises 401) and `get_optional_user` (returns None). Both short-circuit to `"dev"` when `settings.auth_disabled=True`. |
 | `api/auth.py` | `POST /api/v1/auth/login` (OAuth2 form → JWT), `GET /api/v1/auth/me` (token check) |
 | `api/predictions.py` | `GET /api/v1/weeks` (incl. `completed` flag), `/predictions/{week}` (optional auth — strips `factors` if unauthenticated), `/predictions/{week}/{game_id}` (auth required) |
-| `api/covers.py` | Same auth pattern as predictions.py. `/covers/{week}` strips factors if unauthenticated; `/covers/{week}/{game_id}` requires auth. Response includes `home_juice`/`away_juice` (American odds from Odds API, null for historical games). |
+| `api/covers.py` | Same auth pattern as predictions.py. `/covers/{week}` strips factors if unauthenticated; `/covers/{week}/{game_id}` requires auth. Response includes `home_juice`/`away_juice` (American odds from OddspaPI or Odds API, null for historical games). |
 | `api/lock.py` | `POST /predictions/{week}/{game_id}/lock` (per-game, UI) and `POST /predictions/{week}/lock` (bulk, CLI). Both require auth. Delegates to `cache.lock_game_to_cache()`. |
 | `api/accuracy.py` | `GET /api/v1/accuracy` — overall + by-week + by-tier |
 | `api/cover_accuracy.py` | `GET /api/v1/accuracy/covers` — same schema as accuracy.py but for cover picks; excludes games with no spread data and pushes |
@@ -45,7 +45,7 @@ Public/authenticated split: unauthenticated users see completed historical weeks
 | `prediction/factors/form.py` | Unified form factor: W/L record + scoring differential + Net Yards Per Play, each recency-weighted with geometric decay. Three sub-factors averaged into one score. |
 | `prediction/factors/ats_form.py` | Recent ATS cover rate vs. closing spread (last N games with spread data). Defaults to `weight=0.0` — enable in `.env`. |
 | `prediction/factors/rest_advantage.py` | Days-since-last-game advantage; asymmetric — short week penalised more than bye rewarded. Defaults to `weight=0.0` — enable in `.env`. |
-| `prediction/factors/betting_lines.py` | The Odds API point spread (live) or historical closing spread via `spreads.py` (past games) |
+| `prediction/factors/betting_lines.py` | OddspaPI point spread (live, primary) → The Odds API (fallback) → historical CSV via `spreads.py` (past games) |
 | `prediction/factors/coaching_matchup.py` | Multiple sub-signals averaged. Defaults to `weight=0.0` — enable in `.env`. |
 | `prediction/factors/weather_factor.py` | Home familiarity edge in adverse outdoor conditions (rain/snow/cold). Dome games score 0. Defaults to `weight=0.0` — enable in `.env`. |
 
@@ -144,8 +144,11 @@ Frontend: `http://localhost:5173`
 ### nflreadpy
 No auth. Pulls from nflverse GitHub (parquet). Returns Polars DataFrames — call `.to_pandas()` downstream. Updated weekly during season. Built-in caching; `nfl.clear_cache()` to reset.
 
-### The Odds API
-Requires `ODDS_API_KEY` in `backend/.env`. Free tier: 500 req/month. Sport key: `americanfootball_nfl`. Markets: `h2h`, `spreads`. App skips this factor gracefully if key is missing.
+### OddspaPI (primary live source)
+Requires `ODDSPAPI_API_KEY` in `backend/.env`. Endpoint: `https://api.oddspapi.io`. Tried first for all live/upcoming games. Multi-step flow: `/v4/sports` → `/v4/tournaments` (discovers NFL IDs, cached in-process) → `/v4/odds-by-tournaments` (bookmaker: draftkings, fanduel, or pinnacle in order). Teams matched via nickname fragments (e.g. `KC` → `Chiefs`). participant1 assumed home team. Spread encoded in `bookmakerOutcomeId` as `'{value}/{home|away}'`; negated to nflverse convention.
+
+### The Odds API (fallback live source)
+Requires `ODDS_API_KEY` in `backend/.env`. Used only when OddspaPI fails or returns no data. Free tier: 500 req/month. Sport key: `americanfootball_nfl`. Markets: `spreads`. App skips the betting lines factor gracefully if neither key is set.
 
 ### Open-Meteo (weather)
 No auth, no key. Archive endpoint for past games; forecast endpoint for games ≤16 days ahead. Dome stadiums are resolved locally with no API call. Requires `data/nfl_stadiums.csv` with columns: Team Abbreviation, Team Full Name, Stadium Name, City, State, Latitude, Longitude, Is Dome, Surface Type, Season Start, Season End. Teams that have moved stadiums (LAR, MIN, LV, LAC, ATL) have multiple rows; lookup is keyed on team + season year.

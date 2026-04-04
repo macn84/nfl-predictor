@@ -63,7 +63,11 @@ class Settings(BaseSettings):
     # Default of 50 shows all picks; real value should be set via environment.
     cover_edge_threshold: int = 50
 
-    # The Odds API — optional; betting lines factor is skipped if absent
+    # OddspaPI — primary source for live betting lines (https://oddspapi.io/)
+    # Requires ODDSPAPI_API_KEY in backend/.env. Tried first; falls back to The Odds API.
+    oddspapi_api_key: str = ""
+
+    # The Odds API — fallback for live betting lines when OddspaPI is unavailable
     odds_api_key: str = ""
 
     # Scheduler — times are in US Eastern (ET). Override in backend/.env.
