@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import type { FactorResult } from '../../api/types'
 import { FactorBar } from './FactorBar'
+import { describe, it, expect } from 'vitest'
 
 const activeFactors: FactorResult[] = [
   { name: 'form', score: 40.0, weight: 0.333, contribution: 13.3, supporting_data: {} },

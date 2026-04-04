@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { ConfidenceBadge } from './ConfidenceBadge'
+import { describe, it, expect } from 'vitest'
 
 describe('ConfidenceBadge', () => {
   it('renders the confidence value', () => {

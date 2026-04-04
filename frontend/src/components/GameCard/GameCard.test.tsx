@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { AuthProvider } from '../../context/AuthContext'
 import { fixtureGame } from '../../test/fixtures'
 import { GameCard } from './GameCard'
+import { describe, it, expect } from 'vitest'
 
 function renderCard() {
   return render(

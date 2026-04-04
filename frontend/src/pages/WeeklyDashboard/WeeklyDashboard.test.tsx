@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from '../../context/AuthContext'
 import { fixtureWeekPredictions, fixtureWeeksResponse } from '../../test/fixtures'
 import { WeeklyDashboard } from './WeeklyDashboard'
