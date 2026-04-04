@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import patch
 
 from app.prediction.engine import (
+    COVER_CONFIDENCE_SCALE,
     _normalize_weights,
     _weighted_sum_to_confidence,
     predict,
@@ -109,9 +110,37 @@ class TestPredictCover:
         result = predict_cover("KC", "BUF", 2024, schedules=schedules)
         assert isinstance(result, CoverPredictionResult)
 
-    def test_cover_confidence_in_range(self, schedules):
+    def test_cover_confidence_is_fifty_when_no_spread(self, schedules):
+        # No game_date → no spread lookup → confidence defaults to 50.0 (coin flip)
         result = predict_cover("KC", "BUF", 2024, schedules=schedules)
-        assert 50.0 <= result.cover_confidence <= 100.0
+        assert result.cover_confidence == 50.0
+
+    def test_cover_confidence_based_on_margin_disagreement(self, schedules):
+        # With a known spread, confidence should reflect |predicted_margin - spread|
+        with patch("app.prediction.engine.get_spread", return_value=-3.0):
+            result = predict_cover(
+                "KC", "BUF", 2024, schedules=schedules, game_date=date(2024, 9, 8)
+            )
+        assert result.spread == -3.0
+        expected = min(50.0 + abs(result.predicted_margin - result.spread) * COVER_CONFIDENCE_SCALE, 100.0)
+        assert abs(result.cover_confidence - round(expected, 1)) < 1e-9
+
+    def test_betting_lines_weight_zero_in_cover_mode(self, schedules):
+        # betting_lines is circular in cover mode — must always be zeroed out
+        result = predict_cover("KC", "BUF", 2024, schedules=schedules)
+        bl = next(f for f in result.factors if f.name == "betting_lines")
+        assert bl.weight == 0.0
+
+    def test_winner_unaffected_by_cover_fix(self, schedules):
+        # predict() must be completely unaffected — run both and compare winner result
+        winner = predict("KC", "BUF", 2024, schedules=schedules)
+        bl = next(f for f in winner.factors if f.name == "betting_lines")
+        # betting_lines must still have non-zero weight in winner mode (data available for 2024)
+        # and the prediction result must still be valid
+        assert winner.predicted_winner in ("KC", "BUF")
+        assert 50.0 <= winner.confidence <= 100.0
+        active_weights = sum(f.weight for f in winner.factors if f.weight > 0)
+        assert abs(active_weights - 1.0) < 1e-6
 
     def test_predicted_margin_is_float(self, schedules):
         result = predict_cover("KC", "BUF", 2024, schedules=schedules)

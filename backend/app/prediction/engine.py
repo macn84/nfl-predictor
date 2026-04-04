@@ -11,6 +11,12 @@ Public API:
 
 from datetime import date
 
+# Multiplier for converting |predicted_margin - spread| to cover confidence.
+# Formula: min(50 + disagreement * COVER_CONFIDENCE_SCALE, 100)
+# A 20pt model-vs-market disagreement → 100% confidence; 8pt → 70%.
+# Tune this after validating cover predictions via backtest.
+COVER_CONFIDENCE_SCALE = 2.5
+
 import pandas as pd
 
 from app.data.loader import load_schedules, load_team_game_stats
@@ -117,6 +123,7 @@ def _run_factors(
     team_stats: pd.DataFrame,
     game_date: date | None,
     weights: dict[str, float],
+    cover_mode: bool = False,
 ) -> list[FactorResult]:
     """Run all factor calculations and return normalised results.
 
@@ -134,6 +141,12 @@ def _run_factors(
         game_date: Kickoff date; None silently skips weather factor.
         weights: Factor name → weight mapping. Keys must match factor names
                  returned by each factor's calculate() (e.g. 'form').
+        cover_mode: When True, forces betting_lines weight to 0.0. The betting_lines
+                    score encodes spread direction (positive = home favoured), which is
+                    circular in cover mode: it pushes predicted_margin in the same
+                    direction as the spread threshold it is compared against, making the
+                    signal self-cancelling. The optimizer confirms this independently —
+                    betting=0.0 appears across all top-20 cover weight combinations.
 
     Returns:
         Normalised list of FactorResult with weights from the provided dict.
@@ -160,7 +173,11 @@ def _run_factors(
     for f in raw:
         profile_weight = weights.get(f.name, 0.0)
         data_unavailable = bool(f.supporting_data.get("skipped", False))
-        effective_weight = 0.0 if data_unavailable else profile_weight
+        if cover_mode and f.name == "betting_lines":
+            # Force to zero in cover mode regardless of data availability — circular signal.
+            effective_weight = 0.0
+        else:
+            effective_weight = 0.0 if data_unavailable else profile_weight
         overridden.append(
             FactorResult(
                 name=f.name,
@@ -260,16 +277,30 @@ def predict_cover(
         team_stats = load_team_game_stats(seasons)
 
     normalized = _run_factors(
-        home_team, away_team, season, schedules, team_stats, game_date, settings.cover_weights
+        home_team, away_team, season, schedules, team_stats, game_date,
+        settings.cover_weights, cover_mode=True,
     )
     weighted_sum = sum(f.contribution for f in normalized)
 
     predicted_margin = MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT
-    cover_confidence = round(_weighted_sum_to_confidence(weighted_sum), 1)
 
     spread: float | None = None
     if game_date is not None:
         spread = get_spread(home_team, away_team, game_date)
+
+    # Cover confidence = how far the model's predicted margin diverges from the spread.
+    # Unlike winner confidence (which measures |weighted_sum|), this correctly rewards
+    # situations where the model strongly disagrees with the market.
+    # Example: model predicts home +8, spread home -3 → 11pt disagreement → 77.5% confidence.
+    # The score cache stores raw factor scores only — no confidence values — so no cache
+    # rebuild is required. Just re-run the optimizer as normal (without --rebuild-cache).
+    if spread is not None:
+        margin_disagreement = abs(predicted_margin - spread)
+        cover_confidence = round(
+            min(50.0 + margin_disagreement * COVER_CONFIDENCE_SCALE, 100.0), 1
+        )
+    else:
+        cover_confidence = 50.0
 
     predicted_cover: str | None = None
     if spread is not None:

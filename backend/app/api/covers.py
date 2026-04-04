@@ -18,7 +18,7 @@ from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
-from app.prediction.engine import predict_cover
+from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict_cover
 from app.prediction.models import CoverPredictionResult, FactorResult
 
 router = APIRouter(prefix="/api/v1")
@@ -111,13 +111,22 @@ def _cover_week_games(
 
         if in_cache and score_cache is not None and cache_key is not None:
             cached = score_cache[cache_key]
-            weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
+            weighted_sum, _ = apply_weights(cached, settings.cover_weights)
             cached_spread: float | None = cached.get("spread")
             predicted_margin: float | None = (
                 (MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT)
                 if cached_spread is not None
                 else None
             )
+            # Recompute cover confidence using the margin-disagreement formula, not
+            # the winner-style |weighted_sum| confidence returned by apply_weights().
+            if predicted_margin is not None and cached_spread is not None:
+                cover_confidence = min(
+                    50.0 + abs(predicted_margin - cached_spread) * COVER_CONFIDENCE_SCALE,
+                    100.0,
+                )
+            else:
+                cover_confidence = 50.0
             predicted_cover: str | None = (
                 home if (predicted_margin is not None and predicted_margin > cached_spread)  # type: ignore[operator]
                 else away if predicted_margin is not None
