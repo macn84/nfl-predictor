@@ -35,10 +35,29 @@ class Settings(BaseSettings):
     cover_weight_coaching_matchup: float = 0.0   # disabled by default
     cover_weight_weather: float = 0.0            # disabled by default
 
-    # Cover margin calibration — override in backend/.env to keep tuned values private.
+    # New cover-specific factor weights (all 0.0 until weights are optimised).
+    cover_weight_pythagorean: float = 0.0        # pythagorean regression
+    cover_weight_epa_differential: float = 0.0  # EPA differential vs market
+    cover_weight_success_rate: float = 0.0       # early-down success rate matchup
+    cover_weight_turnover_regression: float = 0.0  # turnover luck regression
+    cover_weight_game_script: float = 0.0        # game script / variance heuristic
+    cover_weight_market_signals: float = 0.0    # market signals (line movement, Pinnacle, juice)
+
+    # Tuning for new cover factors — override in backend/.env.
+    success_rate_games: int = 8    # lookback window for success rate factor
+    turnover_luck_games: int = 6   # lookback window for turnover regression factor
+    explosive_play_threshold: int = 15  # yards_gained >= this = explosive play
+
+    # Winner margin calibration — output of optimise_weights.py; informational only.
     # Derived from optimiser run: predicted_margin = margin_slope * weighted_sum + margin_intercept
     margin_slope: float = 0.1
     margin_intercept: float = 1.0
+
+    # Cover margin calibration — output of optimise_cover_weights.py; used by predict_cover().
+    # Calibrated against the 12-factor cover model. Override in backend/.env.
+    # Falls back to margin_slope/margin_intercept if not set (safe until cover optimiser is run).
+    cover_margin_slope: float | None = None
+    cover_margin_intercept: float | None = None
 
     # Confidence clamping — set ceiling < 100 to prevent overconfident picks.
     # Defaults preserve existing behaviour (no clamping).
@@ -110,6 +129,12 @@ class Settings(BaseSettings):
             "betting_lines": self.cover_weight_betting_lines,
             "coaching_matchup": self.cover_weight_coaching_matchup,
             "weather": self.cover_weight_weather,
+            "pythagorean_regression": self.cover_weight_pythagorean,
+            "epa_differential": self.cover_weight_epa_differential,
+            "success_rate": self.cover_weight_success_rate,
+            "turnover_regression": self.cover_weight_turnover_regression,
+            "game_script": self.cover_weight_game_script,
+            "market_signals": self.cover_weight_market_signals,
         }
 
 

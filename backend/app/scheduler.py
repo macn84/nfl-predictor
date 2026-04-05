@@ -24,7 +24,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
 from app.data import accuracy_cache
-from app.data.cache import load_score_cache, write_score_cache
+from app.data.cache import apply_opening_spread, load_score_cache, write_score_cache
 from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
 from app.data.spreads import get_spread
 from app.prediction.engine import predict
@@ -118,8 +118,16 @@ def _add_to_cache(
     spread = get_spread(home, away, game_date) if game_date else None
 
     bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
-    home_juice: int | None = bl.supporting_data.get("home_juice") if bl else None
-    away_juice: int | None = bl.supporting_data.get("away_juice") if bl else None
+    bl_data = bl.supporting_data if bl else {}
+    home_juice: int | None = bl_data.get("home_juice")
+    away_juice: int | None = bl_data.get("away_juice")
+    # live_spread: the spread currently quoted by the live API (not the historical CSV).
+    # None for completed/historical games where betting_lines reads from CSV.
+    live_spread: float | None = (
+        bl_data.get("home_team_spread")
+        if bl and not bl_data.get("skipped") and bl_data.get("source", "").endswith("_live")
+        else None
+    )
 
     cache[cache_key] = {
         "game_id": cache_key,
@@ -133,6 +141,7 @@ def _add_to_cache(
         "spread": spread,
         "home_juice": home_juice,
         "away_juice": away_juice,
+        "live_spread": live_spread,
     }
     return True
 
@@ -230,6 +239,17 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
         logger.info("Backfill: cleared %d existing season entries", removed)
 
     # ------------------------------------------------------------------
+    # Step 2b: Pre-load PBP data for the season so cover factor calls
+    #          within this run share one in-memory copy.
+    # ------------------------------------------------------------------
+    try:
+        from app.data.pbp_stats import preload_pbp
+        preload_pbp(season)
+        logger.info("PBP data preloaded for season %d", season)
+    except Exception:
+        logger.warning("PBP preload failed (non-fatal)", exc_info=True)
+
+    # ------------------------------------------------------------------
     # Step 3: Cache all completed games for the season
     # ------------------------------------------------------------------
     completed = season_games[
@@ -279,11 +299,20 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             if is_completed:
                 continue  # already handled above
             # Always evict the existing entry so each scheduler run fetches fresh
-            # odds (Odds API) and weather (Open-Meteo) for upcoming games.
+            # odds and weather for upcoming games — but preserve opening_spread.
             cache_key = f"{home}-{away}-{game_date}"
-            existing.pop(cache_key, None)
+            old_entry = existing.pop(cache_key, None)
+            old_opening_spread: float | None = old_entry.get("opening_spread") if old_entry else None
+            old_opening_spread_ts: str | None = old_entry.get("opening_spread_captured_at") if old_entry else None
             try:
                 _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
+                new_entry = existing.get(cache_key)
+                if new_entry is not None:
+                    # Restore previously captured opening spread before applying logic.
+                    if old_opening_spread is not None:
+                        new_entry["opening_spread"] = old_opening_spread
+                        new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                    apply_opening_spread(new_entry, new_entry.get("live_spread"))
                 week_new += 1
                 newly_cached += 1
             except Exception:

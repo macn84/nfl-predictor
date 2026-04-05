@@ -9,7 +9,7 @@ from load_score_cache() and fall back to live predict() calls on a miss.
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -99,6 +99,29 @@ def lock_game_to_cache(
     write_score_cache(entries)
 
     return pred.predicted_winner, pred.confidence, pred.factors
+
+
+def apply_opening_spread(entry: dict, live_spread: float | None) -> None:
+    """Set opening_spread fields on a cache entry if not already captured.
+
+    Call this once per scheduler run for each upcoming game entry. The opening
+    spread is set on first encounter and never overwritten on subsequent runs.
+
+    Args:
+        entry: Mutable cache entry dict. Modified in-place.
+        live_spread: Current live spread (nflverse convention: positive = home
+            favoured). None if no live spread is available.
+    """
+    if entry.get("opening_spread") is not None:
+        # Already captured — never overwrite.
+        entry["has_opening_spread"] = True
+        return
+    if live_spread is not None:
+        entry["opening_spread"] = live_spread
+        entry["opening_spread_captured_at"] = datetime.now(timezone.utc).isoformat()
+        entry["has_opening_spread"] = True
+    else:
+        entry["has_opening_spread"] = False
 
 
 def apply_weights(game: dict, weights: dict[str, float]) -> tuple[float, float]:

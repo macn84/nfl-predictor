@@ -22,7 +22,7 @@ from app.data import accuracy_cache
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.data.spreads import get_spread
-from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
+from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.engine import predict_cover
 
 router = APIRouter(prefix="/api/v1")
@@ -100,7 +100,7 @@ def get_cover_accuracy(
                 continue
             if actual_margin == spread:
                 continue  # push — skip
-            predicted_margin = MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT
+            predicted_margin = COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT
             predicted_cover: str | None = home if predicted_margin > spread else away
         else:
             spread = get_spread(home, away, game_date)

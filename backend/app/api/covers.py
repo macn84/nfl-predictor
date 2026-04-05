@@ -17,7 +17,7 @@ from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
-from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
+from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict_cover
 from app.prediction.models import CoverPredictionResult, FactorResult
 
@@ -114,7 +114,7 @@ def _cover_week_games(
             weighted_sum, _ = apply_weights(cached, settings.cover_weights)
             cached_spread: float | None = cached.get("spread")
             predicted_margin: float | None = (
-                (MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT)
+                (COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT)
                 if cached_spread is not None
                 else None
             )

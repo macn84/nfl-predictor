@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional
 
@@ -36,6 +37,22 @@ import requests
 from app.config import settings
 from app.data.spreads import get_spread, is_historical
 from app.prediction.models import FactorResult
+
+
+@dataclass
+class LiveOddsData:
+    """Aggregated live odds across multiple bookmakers.
+
+    All spreads use nflverse convention: positive = home favoured.
+    Juice values are American odds (e.g. -110).
+    """
+
+    consensus_spread: float          # median across all books that returned a spread
+    home_juice: int | None           # juice on home side from primary book
+    away_juice: int | None           # juice on away side from primary book
+    pinnacle_spread: float | None    # Pinnacle specifically (sharpest market)
+    num_books: int                   # number of books that returned a spread
+    all_spreads: list[float] = field(default_factory=list)  # one entry per book
 
 logger = logging.getLogger(__name__)
 
@@ -520,3 +537,117 @@ def calculate(
         return _skip("no API key configured and game is not in historical CSV range")
 
     return _skip(f"live spread unavailable for {home_team} vs {away_team}")
+
+
+# ---------------------------------------------------------------------------
+# Multi-book odds aggregation (used by market_signals_factor)
+# ---------------------------------------------------------------------------
+
+# Per-bookmaker cache: bookmaker → (data, timestamp)
+_oddspapi_book_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
+
+_ALL_BOOKS = ("draftkings", "fanduel", "pinnacle")
+
+
+def _fetch_oddspapi_for_book(bookmaker: str) -> list[dict[str, Any]] | None:
+    """Fetch OddspaPI fixtures for a specific bookmaker with per-book TTL cache."""
+    cached_data, cached_ts = _oddspapi_book_cache.get(bookmaker, (None, 0.0))
+    if cached_data is not None and (time.time() - cached_ts) < _CACHE_TTL_SECONDS:
+        return cached_data
+
+    ids = _discover_oddspapi_nfl_ids()
+    if ids is None:
+        return None
+
+    _, tournament_id = ids
+    key = settings.oddspapi_api_key
+
+    try:
+        resp = requests.get(
+            f"{_ODDSPAPI_BASE}/v4/odds-by-tournaments",
+            params={
+                "apiKey": key,
+                "tournamentIds": str(tournament_id),
+                "bookmaker": bookmaker,
+                "oddsFormat": "american",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data: list[dict[str, Any]] = resp.json()
+        if data:
+            _oddspapi_book_cache[bookmaker] = (data, time.time())
+            logger.debug("OddspaPI multi-book: fetched %d fixtures via %s", len(data), bookmaker)
+            return data
+    except Exception as exc:
+        logger.warning(
+            "OddspaPI multi-book (%s) failed: %s",
+            bookmaker,
+            str(exc).replace(key, "***"),
+        )
+    return None
+
+
+def get_live_odds_data(
+    home_team: str,
+    away_team: str,
+    game_date: date | None = None,
+) -> LiveOddsData | None:
+    """Return aggregated live odds across all available bookmakers.
+
+    Fetches from DraftKings, FanDuel, and Pinnacle independently.
+    Returns None for historical games or when no API key is configured.
+
+    Args:
+        home_team: Home team abbreviation (e.g. 'KC').
+        away_team: Away team abbreviation (e.g. 'BUF').
+        game_date: Game date used to detect historical games.
+
+    Returns:
+        LiveOddsData or None if unavailable.
+    """
+    if not settings.oddspapi_api_key:
+        return None
+    if game_date is not None and is_historical(game_date):
+        return None
+
+    all_spreads: list[float] = []
+    home_juice: int | None = None
+    away_juice: int | None = None
+    pinnacle_spread: float | None = None
+
+    for book in _ALL_BOOKS:
+        data = _fetch_oddspapi_for_book(book)
+        if data is None:
+            continue
+        result = _find_oddspapi_spread(data, home_team, away_team)
+        if result is None:
+            continue
+        spread, hj, aj = result
+        all_spreads.append(spread)
+        if book == "pinnacle":
+            pinnacle_spread = spread
+        if home_juice is None:
+            # Use first available book's juice as the primary juice values.
+            home_juice = hj
+            away_juice = aj
+
+    if not all_spreads:
+        return None
+
+    # Consensus = median across available books.
+    sorted_spreads = sorted(all_spreads)
+    mid = len(sorted_spreads) // 2
+    if len(sorted_spreads) % 2 == 1:
+        consensus = sorted_spreads[mid]
+    else:
+        consensus = (sorted_spreads[mid - 1] + sorted_spreads[mid]) / 2.0
+
+    return LiveOddsData(
+        consensus_spread=consensus,
+        home_juice=home_juice,
+        away_juice=away_juice,
+        pinnacle_spread=pinnacle_spread,
+        num_books=len(all_spreads),
+        all_spreads=all_spreads,
+    )

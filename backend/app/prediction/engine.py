@@ -21,7 +21,7 @@ import pandas as pd
 
 from app.data.loader import load_schedules, load_team_game_stats
 from app.data.spreads import get_spread
-from app.prediction.calibration import MARGIN_INTERCEPT, MARGIN_SLOPE
+from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.factors import (
     ats_form,
     betting_lines,
@@ -30,6 +30,13 @@ from app.prediction.factors import (
     rest_advantage,
     weather_factor,
 )
+from app.prediction.factors.betting_lines import get_live_odds_data
+from app.prediction.factors.epa_differential import epa_differential_factor
+from app.prediction.factors.game_script import game_script_factor
+from app.prediction.factors.market_signals import market_signals_factor
+from app.prediction.factors.pythagorean_regression import pythagorean_regression_factor
+from app.prediction.factors.success_rate import success_rate_factor
+from app.prediction.factors.turnover_regression import turnover_regression_factor
 from app.prediction.models import CoverPredictionResult, FactorResult, PredictionResult
 
 
@@ -247,12 +254,19 @@ def predict_cover(
     schedules: pd.DataFrame | None = None,
     team_stats: pd.DataFrame | None = None,
     game_date: date | None = None,
+    opening_spread: float | None = None,
 ) -> CoverPredictionResult:
     """Generate a spread-cover prediction for a single NFL matchup.
 
     Uses a separate weight profile (cover_weights from settings) tuned for
     predicting which team beats the point spread, rather than which team wins.
-    Margin is calibrated via MARGIN_SLOPE / MARGIN_INTERCEPT constants.
+    Margin is calibrated via COVER_MARGIN_SLOPE / COVER_MARGIN_INTERCEPT constants.
+
+    New cover-specific factors (pythagorean_regression, epa_differential,
+    success_rate, turnover_regression, game_script, market_signals) are called
+    directly and appended to the factor list. Their weights default to 0.0 so
+    they cannot affect production output until weights are optimised. The merged
+    list is re-normalised once so non-zero weights participate correctly.
 
     Args:
         home_team: Home team abbreviation (e.g. 'KC').
@@ -261,10 +275,13 @@ def predict_cover(
         schedules: Pre-loaded schedules DataFrame. If None, loads automatically.
         team_stats: Per-team per-game stats DataFrame. If None, loads automatically.
         game_date: Kickoff date. Required for spread lookup and weather scoring.
+        opening_spread: Opening spread captured at first odds availability
+            (nflverse convention). Sourced from score_cache by API endpoints.
+            Passed to market_signals_factor for line movement calculation.
 
     Returns:
         CoverPredictionResult with predicted cover team, calibrated margin,
-        spread, confidence score, and factor breakdown.
+        spread, confidence score, and factor breakdown (12 factors total).
     """
     from app.config import settings
 
@@ -276,17 +293,48 @@ def predict_cover(
         seasons = list(range(2015, season + 1))
         team_stats = load_team_game_stats(seasons)
 
-    normalized = _run_factors(
+    # --- Step 1: existing 6 factors via _run_factors() ---
+    existing_factors = _run_factors(
         home_team, away_team, season, schedules, team_stats, game_date,
         settings.cover_weights, cover_mode=True,
     )
-    weighted_sum = sum(f.contribution for f in normalized)
 
-    predicted_margin = MARGIN_SLOPE * weighted_sum + MARGIN_INTERCEPT
-
+    # --- Step 2: spread + live odds (needed by new factors) ---
     spread: float | None = None
     if game_date is not None:
         spread = get_spread(home_team, away_team, game_date)
+
+    live_odds = get_live_odds_data(home_team, away_team, game_date)
+
+    # --- Step 3: new cover-specific factors (all weight 0.0 by default) ---
+    if game_date is not None:
+        new_factors: list[FactorResult] = [
+            pythagorean_regression_factor(
+                home_team, away_team, season, game_date, schedules
+            ),
+            epa_differential_factor(
+                home_team, away_team, season, game_date, spread=spread
+            ),
+            success_rate_factor(home_team, away_team, season, game_date),
+            turnover_regression_factor(home_team, away_team, season, game_date),
+            game_script_factor(
+                home_team, away_team, season, game_date, spread=spread
+            ),
+            market_signals_factor(
+                home_team, away_team, season, game_date,
+                live_odds=live_odds,
+                opening_spread=opening_spread,
+            ),
+        ]
+    else:
+        # No game_date — skip all PBP and market factors (leakage risk).
+        new_factors = []
+
+    # --- Step 4: merge and re-normalise so new weights participate correctly ---
+    all_factors = _normalize_weights(existing_factors + new_factors)
+    weighted_sum = sum(f.contribution for f in all_factors)
+
+    predicted_margin = COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT
 
     # Cover confidence = how far the model's predicted margin diverges from the spread.
     # Unlike winner confidence (which measures |weighted_sum|), this correctly rewards
@@ -317,5 +365,5 @@ def predict_cover(
         predicted_margin=round(predicted_margin, 2),
         predicted_cover=predicted_cover,
         cover_confidence=cover_confidence,
-        factors=normalized,
+        factors=all_factors,
     )
