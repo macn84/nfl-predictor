@@ -35,13 +35,15 @@ class Settings(BaseSettings):
     cover_weight_coaching_matchup: float = 0.0   # disabled by default
     cover_weight_weather: float = 0.0            # disabled by default
 
-    # New cover-specific factor weights (all 0.0 until weights are optimised).
-    cover_weight_pythagorean: float = 0.0        # pythagorean regression
-    cover_weight_epa_differential: float = 0.0  # EPA differential vs market
+    # Cover-specific factor weights.
     cover_weight_success_rate: float = 0.0       # early-down success rate matchup
-    cover_weight_turnover_regression: float = 0.0  # turnover luck regression
-    cover_weight_game_script: float = 0.0        # game script / variance heuristic
-    cover_weight_market_signals: float = 0.0    # market signals (line movement, Pinnacle, juice)
+    cover_weight_market_signals: float = 0.0     # market signals (line movement, Pinnacle, juice)
+    cover_weight_qb_matchup: float = 0.0         # QB matchup (opponent-adjusted EPA differential)
+
+    # QB rating tuning — override in backend/.env.
+    qb_decay: float = 0.85             # geometric decay per game back in time
+    qb_regression_k: int = 150         # starter regression anchor (effective dropbacks)
+    qb_backup_threshold: int = 100     # effective dropbacks below this → backup treatment
 
     # Tuning for new cover factors — override in backend/.env.
     success_rate_games: int = 8    # lookback window for success rate factor
@@ -121,20 +123,21 @@ class Settings(BaseSettings):
 
     @property
     def cover_weights(self) -> dict[str, float]:
-        """Return named factor weights for the cover prediction mode."""
+        """Return named factor weights for the cover prediction mode.
+
+        7-factor set: form, coaching_matchup, betting_lines, market_signals,
+        rest_advantage, success_rate, qb_matchup.
+        Note: ats_form and weather run via _run_factors() but have no entry
+        here so their cover weight is always 0.
+        """
         return {
             "form": self.cover_weight_form,
-            "ats_form": self.cover_weight_ats_form,
             "rest_advantage": self.cover_weight_rest_advantage,
             "betting_lines": self.cover_weight_betting_lines,
             "coaching_matchup": self.cover_weight_coaching_matchup,
-            "weather": self.cover_weight_weather,
-            "pythagorean_regression": self.cover_weight_pythagorean,
-            "epa_differential": self.cover_weight_epa_differential,
             "success_rate": self.cover_weight_success_rate,
-            "turnover_regression": self.cover_weight_turnover_regression,
-            "game_script": self.cover_weight_game_script,
             "market_signals": self.cover_weight_market_signals,
+            "qb_matchup": self.cover_weight_qb_matchup,
         }
 
 

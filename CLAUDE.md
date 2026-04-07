@@ -28,7 +28,7 @@ This has been silently reversed multiple times.
 ### Do not modify
 - `predict()`, `_run_factors()`, or existing winner-mode factor files for cover changes
 - `FactorResult`, `PredictionResult`, `CoverPredictionResult` response shapes
-- The 6 new cover factors' default weights (must stay 0.0 until optimised)
+- Cover-specific factor default weights (must stay 0.0 until optimised)
 
 ## Architecture
 
@@ -39,9 +39,10 @@ All factors: score in **[-100, +100]**, positive = home advantage, `game_date` p
 `form`, `ats_form`, `rest_advantage`, `betting_lines`, `coaching_matchup`, `weather_factor`
 All use `calculate(schedules, team_stats, home, away, week, season, game_date=None)` signature.
 
-### Cover factors (12)
-Winner factors + `pythagorean_regression`, `epa_differential`, `success_rate`, `turnover_regression`, `game_script`, `market_signals`.
-New cover factors use direct function calls (not `calculate()`), with custom signatures accepting `spread`, `live_odds`, etc. They are appended in `predict_cover()` after `_run_factors()`, then `_normalize_weights()` is called once more on the merged list.
+### Cover factors (7)
+`form`, `rest_advantage`, `coaching_matchup`, `success_rate`, `market_signals`, `qb_matchup` (6 via `_run_factors()` minus `ats_form`/`weather`) + 3 cover-specific via direct call.
+`betting_lines` is forced to weight=0 in cover mode (circular signal). `ats_form` and `weather` run through `_run_factors()` but have no entry in `cover_weights` → always weight=0.
+Cover-specific factors (`success_rate`, `market_signals`, `qb_matchup`) use direct function calls (not `calculate()`), appended in `predict_cover()` after `_run_factors()`. The merged list is re-normalised once.
 
 ### PBP data (`app/data/pbp_stats.py`)
 `nflreadpy` → Polars → `.to_pandas()`. Cached to `data/pbp_{season}.parquet`. Module-level `_pbp_cache` for in-process reuse. `get_team_pbp_stats(team, season, week_cutoff, game_date, decay)` is the main entry point. Returns `TeamPbpStats` dataclass; all fields `None` if `games_sampled < 3`.
@@ -54,7 +55,7 @@ Two independent pairs in `calibration.py`:
 ### Score caches
 Two separate JSON caches in `data/`:
 - `score_cache.json` / `score_cache_full_history.json` — 6 winner factors (used by winner backtest and `optimise_weights.py`)
-- `cover_score_cache.json` / `cover_score_cache_full_history.json` — 12 cover factors (used by cover backtest and `optimise_cover_weights.py`)
+- `cover_score_cache.json` / `cover_score_cache_full_history.json` — 7 cover factors (used by cover backtest and `optimise_cover_weights.py`)
 
 ### Weight override in `_run_factors()`
 Factors return `supporting_data["skipped"]=True` → always weight=0 regardless of profile. Factors with weight=0 in winner settings CAN have non-zero weight in cover profile. Do not simplify this — the two cases are intentionally different.
@@ -66,13 +67,14 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `backend/app/prediction/engine.py` | `predict()`, `predict_cover()`, `_run_factors()`, `_normalize_weights()` |
 | `backend/app/prediction/calibration.py` | Four margin constants — winner and cover pairs |
 | `backend/app/prediction/models.py` | `FactorResult`, `PredictionResult`, `CoverPredictionResult` — do not change |
-| `backend/app/data/pbp_stats.py` | PBP data layer for cover factors |
+| `backend/app/data/pbp_stats.py` | PBP data layer for success_rate cover factor |
+| `backend/app/data/qb_stats.py` | QB rating computation (decay-weighted, opp-adjusted, regression-stabilized) |
 | `backend/app/data/cache.py` | Score cache load/write; `apply_weights()` |
 | `backend/app/config.py` | All settings, both weight profiles, all calibration constants |
 | `backend/app/api/cover_accuracy.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `backend/app/api/covers.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `validation/optimise_weights.py` | Winner-only grid search; writes `optimiser_results.json` |
-| `validation/optimise_cover_weights.py` | Cover-only Optuna TPE; writes `cover_optimiser_results.json` |
+| `validation/optimise_cover_weights.py` | Cover-only grid search (7 factors); writes `cover_optimiser_results.json` |
 | `validation/backtest.py` | `--mode cover` uses `cover_score_cache.json` + `COVER_MARGIN_*` |
 | `validation/analyse_confidence.py` | `--target cover` auto-detects cover results + cache files |
 

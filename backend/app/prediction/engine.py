@@ -31,12 +31,9 @@ from app.prediction.factors import (
     weather_factor,
 )
 from app.prediction.factors.betting_lines import get_live_odds_data
-from app.prediction.factors.epa_differential import epa_differential_factor
-from app.prediction.factors.game_script import game_script_factor
 from app.prediction.factors.market_signals import market_signals_factor
-from app.prediction.factors.pythagorean_regression import pythagorean_regression_factor
+from app.prediction.factors.qb_matchup import qb_matchup_factor
 from app.prediction.factors.success_rate import success_rate_factor
-from app.prediction.factors.turnover_regression import turnover_regression_factor
 from app.prediction.models import CoverPredictionResult, FactorResult, PredictionResult
 
 
@@ -262,8 +259,7 @@ def predict_cover(
     predicting which team beats the point spread, rather than which team wins.
     Margin is calibrated via COVER_MARGIN_SLOPE / COVER_MARGIN_INTERCEPT constants.
 
-    New cover-specific factors (pythagorean_regression, epa_differential,
-    success_rate, turnover_regression, game_script, market_signals) are called
+    Cover-specific factors (success_rate, market_signals, qb_matchup) are called
     directly and appended to the factor list. Their weights default to 0.0 so
     they cannot affect production output until weights are optimised. The merged
     list is re-normalised once so non-zero weights participate correctly.
@@ -281,7 +277,7 @@ def predict_cover(
 
     Returns:
         CoverPredictionResult with predicted cover team, calibrated margin,
-        spread, confidence score, and factor breakdown (12 factors total).
+        spread, confidence score, and factor breakdown (7 factors total).
     """
     from app.config import settings
 
@@ -306,28 +302,19 @@ def predict_cover(
 
     live_odds = get_live_odds_data(home_team, away_team, game_date)
 
-    # --- Step 3: new cover-specific factors (all weight 0.0 by default) ---
+    # --- Step 3: cover-specific factors ---
     if game_date is not None:
         new_factors: list[FactorResult] = [
-            pythagorean_regression_factor(
-                home_team, away_team, season, game_date, schedules
-            ),
-            epa_differential_factor(
-                home_team, away_team, season, game_date, spread=spread
-            ),
             success_rate_factor(home_team, away_team, season, game_date),
-            turnover_regression_factor(home_team, away_team, season, game_date),
-            game_script_factor(
-                home_team, away_team, season, game_date, spread=spread
-            ),
             market_signals_factor(
                 home_team, away_team, season, game_date,
                 live_odds=live_odds,
                 opening_spread=opening_spread,
             ),
+            qb_matchup_factor(home_team, away_team, season, game_date),
         ]
     else:
-        # No game_date — skip all PBP and market factors (leakage risk).
+        # No game_date — skip all cover-specific factors (leakage risk).
         new_factors = []
 
     # --- Step 4: merge and re-normalise so new weights participate correctly ---

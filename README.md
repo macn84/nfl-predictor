@@ -36,8 +36,8 @@ All tuning lives in `backend/.env`. See `.env.example` for the full list with co
 | Live odds (primary) | `ODDSPAPI_API_KEY` |
 | Live odds (fallback) | `ODDS_API_KEY` |
 | Winner weights | `WEIGHT_FORM`, `WEIGHT_ATS_FORM`, `WEIGHT_REST_ADVANTAGE`, `WEIGHT_BETTING_LINES`, `WEIGHT_COACHING_MATCHUP`, `WEIGHT_WEATHER` |
-| Cover weights (6 classic) | `COVER_WEIGHT_FORM`, `COVER_WEIGHT_ATS_FORM`, `COVER_WEIGHT_REST_ADVANTAGE`, `COVER_WEIGHT_BETTING_LINES`, `COVER_WEIGHT_COACHING_MATCHUP`, `COVER_WEIGHT_WEATHER` |
-| Cover weights (6 PBP/market) | `COVER_WEIGHT_PYTHAGOREAN`, `COVER_WEIGHT_EPA_DIFFERENTIAL`, `COVER_WEIGHT_SUCCESS_RATE`, `COVER_WEIGHT_TURNOVER_REGRESSION`, `COVER_WEIGHT_GAME_SCRIPT`, `COVER_WEIGHT_MARKET_SIGNALS` |
+| Cover weights | `COVER_WEIGHT_FORM`, `COVER_WEIGHT_REST_ADVANTAGE`, `COVER_WEIGHT_COACHING_MATCHUP`, `COVER_WEIGHT_SUCCESS_RATE`, `COVER_WEIGHT_MARKET_SIGNALS`, `COVER_WEIGHT_QB_MATCHUP` |
+| QB tuning | `QB_DECAY`, `QB_REGRESSION_K`, `QB_BACKUP_THRESHOLD` |
 | Winner calibration | `MARGIN_SLOPE`, `MARGIN_INTERCEPT` (from `optimise_weights.py`) |
 | Cover calibration | `COVER_MARGIN_SLOPE`, `COVER_MARGIN_INTERCEPT` (from `optimise_cover_weights.py`) |
 | Confidence clamping | `CONFIDENCE_FLOOR`, `CONFIDENCE_CEILING` |
@@ -86,20 +86,17 @@ Winner and cover modes use independent weight profiles. Cover mode additionally 
 | Coaching matchup | Coach vs. opponent record and head-to-head history |
 | Weather | Game-time conditions via Open-Meteo; dome games score 0 |
 
-### Cover factors (12)
+### Cover factors (7)
 
-All 6 winner factors plus:
+`form`, `rest_advantage`, `coaching_matchup` (from winner set) plus:
 
 | Factor | Source |
 |--------|--------|
-| Pythagorean regression | Gap between actual win% and Pythagorean-expected win% (schedules) |
-| EPA differential | Offensive vs. defensive EPA/play matchup with optional market-disagreement boost (PBP) |
 | Success rate | Early-down (1st + 2nd) offensive vs. defensive success rate matchup (PBP) |
-| Turnover regression | Actual vs. expected turnover margin — identifies lucky/unlucky teams (PBP) |
-| Game script | Backdoor cover risk for big favourites; variance boost for underdogs (PBP) |
 | Market signals | Line movement, Pinnacle deviation, and juice asymmetry (live odds only) |
+| QB matchup | Opponent-adjusted EPA/play differential between starting QBs, decay-weighted and regression-stabilized |
 
-The 6 new cover factors default to `weight=0.0` and have no effect until weights are set in `.env`.
+`betting_lines` is excluded from cover mode (circular signal — it moves with the spread). `ats_form` and `weather` run internally but are always weight=0 in cover mode. Cover-specific factors default to `weight=0.0` until weights are set via the optimiser.
 
 ## Tests
 
@@ -153,6 +150,7 @@ backend/
 │   │   ├── loader.py           # nflreadpy wrappers + CSV caching
 │   │   ├── cache.py            # score cache load/write/lock
 │   │   ├── pbp_stats.py        # PBP stats layer (nflreadpy, parquet cache, decay-weighted)
+│   │   ├── qb_stats.py         # QB ratings (opp-adjusted EPA, decay-weighted, regression-stabilized)
 │   │   ├── coaches.py          # head coach lookup from static CSV
 │   │   ├── weather.py          # game-time weather via Open-Meteo
 │   │   └── spreads.py          # historical closing spreads from nflverse CSVs
@@ -162,9 +160,7 @@ backend/
 │       ├── calibration.py      # MARGIN_SLOPE/INTERCEPT + COVER_MARGIN_SLOPE/INTERCEPT
 │       └── factors/            # form, ats_form, rest_advantage, betting_lines,
 │                               # coaching_matchup, weather_factor,
-│                               # pythagorean_regression, epa_differential,
-│                               # success_rate, turnover_regression,
-│                               # game_script, market_signals
+│                               # success_rate, market_signals, qb_matchup
 ├── tests/                      # pytest — factors, engine, API, new cover factors
 └── pyproject.toml
 frontend/
