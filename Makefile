@@ -95,4 +95,11 @@ setup-private:
 		cp "$(PRIVATE)/frontend/.env.local" "$(FRONTEND_DIR)/.env.local"; \
 		echo "Installed frontend/.env.local from private overlay"; \
 	fi
+	@if [ -d "$(PRIVATE)/backend/prompts" ]; then \
+		mkdir -p "$(BACKEND_DIR)/prompts"; \
+		cp "$(PRIVATE)/backend/prompts/"*.md "$(BACKEND_DIR)/prompts/"; \
+		echo "Installed prompt templates from $(PRIVATE)/backend/prompts/"; \
+	else \
+		echo "No prompts/ directory found in private repo — LLM will run in stub mode"; \
+	fi
 	@echo "Done. Run 'make dev' to start."

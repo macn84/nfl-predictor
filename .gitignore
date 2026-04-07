@@ -4,6 +4,9 @@
 # Secrets
 backend/.env
 
+# Private prompt templates (installed by `make setup-private`)
+backend/prompts/
+
 # Python
 __pycache__/
 *.pyc

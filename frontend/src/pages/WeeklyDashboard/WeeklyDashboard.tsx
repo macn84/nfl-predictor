@@ -9,6 +9,7 @@ import { WeekSelector } from '../../components/WeekSelector/WeekSelector'
 import { useAuth } from '../../context/AuthContext'
 import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
+import { useLLM } from '../../hooks/useLLM'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
@@ -62,6 +63,11 @@ export function WeeklyDashboard() {
     loading: coversLoading,
     error: coversError,
   } = useCovers(season, selectedWeek)
+
+  const { responses: llmResponses, analyzing, error: llmError, analyze } = useLLM(
+    season,
+    selectedWeek,
+  )
 
   const sortedPredictions = useMemo(
     () => sortPredictions(predictionsData?.games ?? [], sortBy),
@@ -139,6 +145,19 @@ export function WeeklyDashboard() {
               Cover
             </button>
           </div>
+          {isAuthenticated && (
+            <button
+              onClick={() => void analyze()}
+              disabled={analyzing}
+              title="Ask the AI to explain each pick and flag anything the model may have missed"
+              className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {analyzing ? 'Analyzing…' : 'Ask AI'}
+            </button>
+          )}
+          {llmError && (
+            <span className="text-xs text-app-red font-mono">{llmError}</span>
+          )}
           <SortFilterBar
             sortBy={sortBy}
             onSortChange={setSortBy}
@@ -170,13 +189,26 @@ export function WeeklyDashboard() {
       ) : mode === 'predictions' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedPredictions.map((game) => (
-            <GameCard key={game.game_id} game={game} mode="predictions" season={season} />
+            <GameCard
+              key={game.game_id}
+              game={game}
+              mode="predictions"
+              season={season}
+              llm={llmResponses[game.game_id] ?? null}
+            />
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedCovers.map((game) => (
-            <GameCard key={game.game_id} game={game} mode="covers" season={season} edgeThreshold={config.cover_edge_threshold} />
+            <GameCard
+              key={game.game_id}
+              game={game}
+              mode="covers"
+              season={season}
+              edgeThreshold={config.cover_edge_threshold}
+              llm={llmResponses[game.game_id] ?? null}
+            />
           ))}
         </div>
       )}

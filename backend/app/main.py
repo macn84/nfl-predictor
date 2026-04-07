@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from app.api import accuracy, auth, cover_accuracy, covers, frontend_config, lock, predictions, refresh
+from app.api import accuracy, auth, cover_accuracy, covers, frontend_config, llm, lock, predictions, refresh
 from app.api import scheduler as scheduler_api
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -31,3 +31,4 @@ app.include_router(refresh.router)
 app.include_router(accuracy.router)
 app.include_router(cover_accuracy.router)
 app.include_router(scheduler_api.router)
+app.include_router(llm.router)

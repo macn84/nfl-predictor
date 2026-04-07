@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { GameCoverPrediction, GamePrediction } from '../../api/types'
+import type { GameCoverPrediction, GamePrediction, LLMGameResponse } from '../../api/types'
 import { useAuth } from '../../context/AuthContext'
 import type { PredictionMode } from '../../pages/WeeklyDashboard/WeeklyDashboard'
 import { ConfidenceBadge } from '../ConfidenceBadge/ConfidenceBadge'
@@ -24,6 +24,7 @@ interface GameCardProps {
   season: number
   edgeThreshold?: number
   onLocked?: (gameId: string) => void
+  llm?: LLMGameResponse | null
 }
 
 function formatSpread(team: string, spread: number): string {
@@ -31,7 +32,7 @@ function formatSpread(team: string, spread: number): string {
   return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
 }
 
-export function GameCard({ game, mode, season, edgeThreshold, onLocked }: GameCardProps) {
+export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: GameCardProps) {
   const { isAuthenticated } = useAuth()
   const { home_team, away_team, week, game_id, gameday } = game
   const [locked, setLocked] = useState(game.locked)
@@ -118,22 +119,41 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked }: GameCa
         <CoverStats game={game as GameCoverPrediction} confidence={confidence} />
       )}
 
-      <div className="mt-3 pt-3 border-t border-app-border flex items-center justify-between">
-        <p className="text-xs text-app-dim italic font-mono">
-          {isAuthenticated ? 'Click to drill down' : 'AI summary coming soon…'}
-        </p>
-        {isAuthenticated && isUpcoming && !locked && (
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              setConfirmOpen(true)
-            }}
-            className="text-xs font-semibold text-app-muted hover:text-app-green border border-app-border hover:border-app-green rounded px-2 py-0.5 transition-colors uppercase tracking-wider"
-          >
-            Lock pick
-          </button>
+      <div className="mt-3 pt-3 border-t border-app-border space-y-2">
+        {/* Q1 — mode-appropriate explanation (authenticated users) */}
+        {isAuthenticated && (mode === 'predictions' ? llm?.explanation_winner : llm?.explanation_cover) && (
+          <p className="text-xs text-app-muted leading-relaxed">
+            {mode === 'predictions' ? llm!.explanation_winner : llm!.explanation_cover}
+          </p>
         )}
+        {/* Q2 — real-world validation (authenticated, upcoming games only) */}
+        {isAuthenticated && isUpcoming && llm?.validation && (
+          <p className="text-xs text-app-gold leading-relaxed border-l-2 border-app-gold/40 pl-2">
+            {llm.validation}
+          </p>
+        )}
+        {/* Footer row */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-app-dim italic font-mono">
+            {isAuthenticated
+              ? llm
+                ? 'Click to drill down'
+                : 'Click to drill down · AI analysis pending'
+              : 'AI summary coming soon…'}
+          </p>
+          {isAuthenticated && isUpcoming && !locked && (
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setConfirmOpen(true)
+              }}
+              className="text-xs font-semibold text-app-muted hover:text-app-green border border-app-border hover:border-app-green rounded px-2 py-0.5 transition-colors uppercase tracking-wider"
+            >
+              Lock pick
+            </button>
+          )}
+        </div>
       </div>
     </>
   )

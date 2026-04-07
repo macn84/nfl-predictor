@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     scheduler_sunday_hour: int = 7
     scheduler_sunday_minute: int = 0
 
+    # LLM — set ANTHROPIC_API_KEY in backend/.env to enable AI pick analysis.
+    # PROMPTS_DIR is populated by `make setup-private` (copies from private repo).
+    # Without these, the LLM service runs in stub mode and returns placeholder text.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+    prompts_dir: str = os.path.join(os.path.dirname(__file__), "..", "prompts")
+
     # Auth — set in backend/.env. Use AUTH_DISABLED=true for local dev.
     admin_username: str = ""
     admin_password_hash: str = ""          # bcrypt hash; generate with passlib
