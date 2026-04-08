@@ -189,7 +189,7 @@ class TestGetWeekCovers:
         assert "cover_confidence" in game
         assert "spread" in game
         assert "factors" in game
-        assert len(game["factors"]) == 6
+        assert len(game["factors"]) == 9
 
     def test_cover_confidence_in_range(self, schedules):
         with (

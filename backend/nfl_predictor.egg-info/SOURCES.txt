@@ -9,6 +9,7 @@ app/api/auth.py
 app/api/cover_accuracy.py
 app/api/covers.py
 app/api/frontend_config.py
+app/api/llm.py
 app/api/lock.py
 app/api/predictions.py
 app/api/refresh.py
@@ -21,6 +22,7 @@ app/data/cache.py
 app/data/coaches.py
 app/data/loader.py
 app/data/pbp_stats.py
+app/data/qb_stats.py
 app/data/spreads.py
 app/data/weather.py
 app/data/weather_utils.py
@@ -32,15 +34,13 @@ app/prediction/factors/__init__.py
 app/prediction/factors/ats_form.py
 app/prediction/factors/betting_lines.py
 app/prediction/factors/coaching_matchup.py
-app/prediction/factors/epa_differential.py
 app/prediction/factors/form.py
-app/prediction/factors/game_script.py
 app/prediction/factors/market_signals.py
-app/prediction/factors/pythagorean_regression.py
+app/prediction/factors/qb_matchup.py
 app/prediction/factors/rest_advantage.py
 app/prediction/factors/success_rate.py
-app/prediction/factors/turnover_regression.py
 app/prediction/factors/weather_factor.py
+app/services/llm.py
 nfl_predictor.egg-info/PKG-INFO
 nfl_predictor.egg-info/SOURCES.txt
 nfl_predictor.egg-info/dependency_links.txt
@@ -48,9 +48,6 @@ nfl_predictor.egg-info/requires.txt
 nfl_predictor.egg-info/top_level.txt
 tests/test_api.py
 tests/test_engine.py
-tests/test_epa_differential.py
 tests/test_factors.py
 tests/test_market_signals.py
 tests/test_pbp_stats.py
-tests/test_pythagorean_regression.py
-tests/test_turnover_regression.py

@@ -48,7 +48,8 @@ class TestNormalizeWeights:
 
 
 class TestWeightedSumToConfidence:
-    def test_zero_sum_is_fifty(self):
+    def test_zero_sum_is_fifty(self, monkeypatch):
+        monkeypatch.setattr("app.config.settings.confidence_floor", 50.0)
         assert _weighted_sum_to_confidence(0.0) == 50.0
 
     def test_max_positive_is_one_hundred(self, monkeypatch):

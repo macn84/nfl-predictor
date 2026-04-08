@@ -17,3 +17,6 @@ pytest>=8.0
 pytest-cov
 ruff
 httpx
+
+[llm]
+anthropic>=0.40
