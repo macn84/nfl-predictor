@@ -17,6 +17,8 @@ export interface GamePrediction {
   confidence: number // 0..100
   factors: FactorResult[]
   locked: boolean
+  home_ml_juice: number | null // American odds for home team moneyline (e.g. -145)
+  away_ml_juice: number | null // American odds for away team moneyline (e.g. +125)
 }
 
 export interface WeekSummary {

@@ -55,6 +55,8 @@ class GamePrediction(BaseModel):
     confidence: float
     factors: list[FactorResult]
     locked: bool  # True when this prediction is the official prediction of record
+    home_ml_juice: int | None = None  # American odds for home team moneyline (e.g. -145)
+    away_ml_juice: int | None = None  # American odds for away team moneyline (e.g. +125)
 
 
 class WeekPredictionsResponse(BaseModel):
@@ -126,12 +128,17 @@ def _predict_week_games(
         key = _cache_key(home, away, game_date)
         in_cache = score_cache is not None and key is not None and key in score_cache
 
+        home_ml_juice: int | None = None
+        away_ml_juice: int | None = None
+
         if in_cache and score_cache is not None and key is not None:
             # Use cached prediction of record (either manually locked or auto-locked)
             weighted_sum, confidence = apply_weights(score_cache[key], settings.weights)
             predicted_winner = home if weighted_sum >= 0 else away
             factors: list[FactorResult] = []
             locked = not is_completed  # completed games are in cache for perf, not "locked"
+            home_ml_juice = score_cache[key].get("home_ml_juice")
+            away_ml_juice = score_cache[key].get("away_ml_juice")
         elif auto_lock and game_date is not None and game_date <= today and not is_completed:
             # Game has kicked off but no final score yet and not in cache — auto-lock now
             predicted_winner, confidence, raw_factors = lock_game_to_cache(
@@ -139,12 +146,20 @@ def _predict_week_games(
             )
             factors = [] if not authenticated else raw_factors
             locked = True
+            bl = next((f for f in raw_factors if f.name == "betting_lines"), None)
+            if bl:
+                home_ml_juice = bl.supporting_data.get("home_ml_juice")
+                away_ml_juice = bl.supporting_data.get("away_ml_juice")
         else:
             pred = predict(home, away, season, schedules=schedules, game_date=game_date)
             predicted_winner = pred.predicted_winner
             confidence = pred.confidence
             factors = pred.factors if authenticated else []
             locked = False
+            bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+            if bl:
+                home_ml_juice = bl.supporting_data.get("home_ml_juice")
+                away_ml_juice = bl.supporting_data.get("away_ml_juice")
 
         results.append(
             GamePrediction(
@@ -158,6 +173,8 @@ def _predict_week_games(
                 confidence=confidence,
                 factors=factors,
                 locked=locked,
+                home_ml_juice=home_ml_juice,
+                away_ml_juice=away_ml_juice,
             )
         )
     return results

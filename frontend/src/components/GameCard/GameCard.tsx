@@ -11,6 +11,19 @@ function computeEV(modelProb: number, juice: number): number {
   return (prob * payout - (1 - prob)) * 100
 }
 
+const BANKROLL = 100
+
+function computeKelly(confidence: number, juice: number): number {
+  if (confidence <= 60) return 0
+  const p = confidence / 100
+  const q = 1 - p
+  const b = juice < 0 ? 100 / Math.abs(juice) : juice / 100
+  const fullKelly = (b * p - q) / b
+  if (fullKelly <= 0) return 0
+  const multiplier = confidence <= 75 ? 0.25 : 0.5
+  return Math.round(fullKelly * multiplier * BANKROLL * 100) / 100
+}
+
 function evColor(ev: number): string {
   if (ev > 10) return 'text-app-green'
   if (ev > 5) return 'text-app-gold'
@@ -109,14 +122,34 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: G
       </div>
 
       {mode === 'predictions' ? (
-        <div className="text-sm text-app-muted">
-          Pick:{' '}
-          <span className="font-semibold text-app-text">
-            {(game as GamePrediction).predicted_winner}
-          </span>
+        <div className="text-sm text-app-muted space-y-0.5">
+          <div>
+            Pick:{' '}
+            <span className="font-semibold text-app-text">
+              {(game as GamePrediction).predicted_winner}
+            </span>
+          </div>
+          {isAuthenticated && isUpcoming && (() => {
+            const g = game as GamePrediction
+            const isHome = g.predicted_winner === g.home_team
+            const mlJuice = (isHome ? g.home_ml_juice : g.away_ml_juice) ?? null
+            const juice = mlJuice ?? -110
+            const wager = computeKelly(confidence, juice)
+            return wager > 0 ? (
+              <div>
+                Wager:{' '}
+                <span className="font-semibold font-mono text-app-gold">${wager.toFixed(2)}</span>
+                <span className="text-app-dim text-xs ml-1">
+                  ({juice > 0 ? `+${juice}` : juice}{mlJuice === null ? ', est.' : ''})
+                </span>
+              </div>
+            ) : (
+              <div className="text-app-dim">Wager: <span className="font-mono">$0</span></div>
+            )
+          })()}
         </div>
       ) : (
-        <CoverStats game={game as GameCoverPrediction} confidence={confidence} />
+        <CoverStats game={game as GameCoverPrediction} confidence={confidence} showWager={isAuthenticated && isUpcoming} />
       )}
 
       <div className="mt-3 pt-3 border-t border-app-border space-y-2">
@@ -214,7 +247,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: G
   )
 }
 
-function CoverStats({ game, confidence }: { game: GameCoverPrediction; confidence: number }) {
+function CoverStats({ game, confidence, showWager }: { game: GameCoverPrediction; confidence: number; showWager: boolean }) {
   const { spread, predicted_cover, predicted_margin, home_team, away_team, home_juice, away_juice } = game
 
   const juice =
@@ -222,6 +255,7 @@ function CoverStats({ game, confidence }: { game: GameCoverPrediction; confidenc
     predicted_cover === away_team ? away_juice :
     null
   const ev = predicted_cover !== null ? computeEV(confidence, juice ?? -110) : null
+  const wager = showWager ? computeKelly(confidence, juice ?? -110) : null
 
   return (
     <div className="text-sm text-app-muted space-y-0.5">
@@ -251,6 +285,16 @@ function CoverStats({ game, confidence }: { game: GameCoverPrediction; confidenc
             {ev >= 0 ? '+' : ''}{ev.toFixed(1)}%
           </span>
         </div>
+      )}
+      {wager !== null && (
+        wager > 0 ? (
+          <div>
+            Wager:{' '}
+            <span className="font-semibold font-mono text-app-gold">${wager.toFixed(2)}</span>
+          </div>
+        ) : (
+          <div className="text-app-dim">Wager: <span className="font-mono">$0</span></div>
+        )
       )}
     </div>
   )

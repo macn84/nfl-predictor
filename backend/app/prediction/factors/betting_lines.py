@@ -308,10 +308,48 @@ def _extract_spread_from_market(
     return (None, -110, -110)
 
 
+def _extract_moneyline_from_fixture(
+    fixture: dict[str, Any], home_side: str, away_side: str
+) -> tuple[int | None, int | None]:
+    """Try to extract moneyline prices from an OddspaPI fixture.
+
+    OddspaPI moneyline markets are identified by bookmakerOutcomeId equal to
+    just 'home' or 'away' (no spread value, no '/').
+
+    Args:
+        fixture: A single fixture dict from OddspaPI response.
+        home_side: 'home' or 'away' — which side maps to our home team.
+        away_side: The opposite side.
+
+    Returns:
+        (home_ml_price, away_ml_price) in American odds, or (None, None) if not found.
+    """
+    home_ml: int | None = None
+    away_ml: int | None = None
+    for bmaker_data in fixture.get("bookmakerOdds", {}).values():
+        for market_data in bmaker_data.get("markets", {}).values():
+            for outcome_data in market_data.get("outcomes", {}).values():
+                for player in outcome_data.get("players", {}).values():
+                    bid = str(player.get("bookmakerOutcomeId", "")).strip().lower()
+                    price = player.get("price")
+                    if price is None:
+                        continue
+                    price = int(price)
+                    # Moneyline: outcomeId is just the side token, no '/' separator
+                    if "/" not in bid:
+                        if bid == home_side and home_ml is None:
+                            home_ml = price
+                        elif bid == away_side and away_ml is None:
+                            away_ml = price
+            if home_ml is not None and away_ml is not None:
+                return (home_ml, away_ml)
+    return (None, None)
+
+
 def _find_oddspapi_spread(
     data: list[dict[str, Any]], home_team: str, away_team: str
-) -> Optional[tuple[float, int, int]]:
-    """Extract home-team spread and juice from OddspaPI response.
+) -> Optional[tuple[float, int, int, int | None, int | None]]:
+    """Extract home-team spread, juice, and moneyline prices from OddspaPI response.
 
     OddspaPI uses full team names ('Kansas City Chiefs'). Teams are matched
     via _NFL_TEAM_PATTERNS (abbreviation → unique nickname).
@@ -323,9 +361,9 @@ def _find_oddspapi_spread(
         away_team: Away team abbreviation.
 
     Returns:
-        (home_spread, home_price, away_price) or None.
+        (home_spread, home_price, away_price, home_ml_price, away_ml_price) or None.
         home_spread is positive when home is favoured (nflverse convention).
-        Prices are American odds (e.g. -110).
+        Prices are American odds (e.g. -110). ML prices may be None.
     """
     for fixture in data:
         p1 = fixture.get("participant1Name", "")
@@ -345,16 +383,25 @@ def _find_oddspapi_spread(
         home_side = "home" if home_is_p1 else "away"
         away_side = "away" if home_is_p1 else "home"
 
+        spread_result: tuple[float, int, int] | None = None
         for bmaker_data in fixture.get("bookmakerOdds", {}).values():
             for market_data in bmaker_data.get("markets", {}).values():
                 spread, hp, ap = _extract_spread_from_market(market_data, home_side, away_side)
                 if spread is not None:
-                    return (spread, hp, ap)
+                    spread_result = (spread, hp, ap)
+                    break
+            if spread_result is not None:
+                break
 
-        logger.warning(
-            "OddspaPI: matched %s vs %s but no spread market found in response", home_team, away_team
-        )
-        return None
+        if spread_result is None:
+            logger.warning(
+                "OddspaPI: matched %s vs %s but no spread market found in response",
+                home_team, away_team,
+            )
+            return None
+
+        home_ml, away_ml = _extract_moneyline_from_fixture(fixture, home_side, away_side)
+        return (spread_result[0], spread_result[1], spread_result[2], home_ml, away_ml)
 
     return None
 
@@ -374,7 +421,7 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
             params={
                 "apiKey": settings.odds_api_key,
                 "regions": "us",
-                "markets": "spreads",
+                "markets": "spreads,h2h",
                 "oddsFormat": "american",
             },
             timeout=10,
@@ -391,11 +438,12 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
 
 def _find_live_spread(
     odds_data: list[dict[str, Any]], home_team: str, away_team: str
-) -> Optional[tuple[float, int, int]]:
-    """Extract home-team spread and juice from The Odds API response.
+) -> Optional[tuple[float, int, int, int | None, int | None]]:
+    """Extract home-team spread, juice, and moneyline prices from The Odds API response.
 
     The Odds API uses full team names (e.g. 'Kansas City Chiefs').
     Matches by checking if the team abbreviation appears in the full name.
+    Fetches both spreads and h2h (moneyline) markets.
 
     Args:
         odds_data: List of game objects from the API.
@@ -403,33 +451,43 @@ def _find_live_spread(
         away_team: Away team abbreviation.
 
     Returns:
-        Tuple of (home_spread, home_price, away_price) or None if not found.
-        home_spread is positive when home team is favoured (nflverse convention).
-        Prices are American odds (e.g. -110).
+        Tuple of (home_spread, home_price, away_price, home_ml_price, away_ml_price)
+        or None if not found. home_spread is positive when home team is favoured
+        (nflverse convention). Prices are American odds (e.g. -110). ML prices may be None.
     """
     for game in odds_data:
         h = game.get("home_team", "").upper()
         a = game.get("away_team", "").upper()
         if home_team.upper() not in h and away_team.upper() not in a:
             continue
+        home_point: float | None = None
+        home_price: int = -110
+        away_price: int = -110
+        home_ml: int | None = None
+        away_ml: int | None = None
         for bookmaker in game.get("bookmakers", []):
             for market in bookmaker.get("markets", []):
-                if market.get("key") != "spreads":
-                    continue
-                home_point: float | None = None
-                home_price: int = -110
-                away_price: int = -110
-                for outcome in market.get("outcomes", []):
-                    name_upper = outcome.get("name", "").upper()
-                    if home_team.upper() in name_upper:
-                        # Odds API: negative = home favoured (standard bookmaker convention).
-                        # Negate to match nflverse convention: positive = home favoured.
-                        home_point = -float(outcome["point"])
-                        home_price = int(outcome.get("price", -110))
-                    elif away_team.upper() in name_upper:
-                        away_price = int(outcome.get("price", -110))
-                if home_point is not None:
-                    return (home_point, home_price, away_price)
+                key = market.get("key")
+                if key == "spreads" and home_point is None:
+                    for outcome in market.get("outcomes", []):
+                        name_upper = outcome.get("name", "").upper()
+                        if home_team.upper() in name_upper:
+                            # Odds API: negative = home favoured → negate for nflverse
+                            home_point = -float(outcome["point"])
+                            home_price = int(outcome.get("price", -110))
+                        elif away_team.upper() in name_upper:
+                            away_price = int(outcome.get("price", -110))
+                elif key == "h2h" and home_ml is None:
+                    for outcome in market.get("outcomes", []):
+                        name_upper = outcome.get("name", "").upper()
+                        if home_team.upper() in name_upper:
+                            home_ml = int(outcome.get("price", -110))
+                        elif away_team.upper() in name_upper:
+                            away_ml = int(outcome.get("price", -110))
+            if home_point is not None and home_ml is not None:
+                break
+        if home_point is not None:
+            return (home_point, home_price, away_price, home_ml, away_ml)
     return None
 
 
@@ -492,7 +550,7 @@ def calculate(
             else:
                 live = _find_oddspapi_spread(oddspapi_data, home_team, away_team)
                 if live is not None:
-                    spread, home_juice, away_juice = live
+                    spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
                     score = _spread_to_score(spread)
                     return FactorResult(
                         name="betting_lines",
@@ -503,6 +561,8 @@ def calculate(
                             "home_team_spread": spread,
                             "home_juice": home_juice,
                             "away_juice": away_juice,
+                            "home_ml_juice": home_ml_juice,
+                            "away_ml_juice": away_ml_juice,
                             "source": "oddspapi_live",
                             "game_date": str(game_date) if game_date else None,
                         },
@@ -517,7 +577,7 @@ def calculate(
         if odds_data is not None and len(odds_data) > 0:
             live = _find_live_spread(odds_data, home_team, away_team)
             if live is not None:
-                spread, home_juice, away_juice = live
+                spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
                 score = _spread_to_score(spread)
                 return FactorResult(
                     name="betting_lines",
@@ -528,6 +588,8 @@ def calculate(
                         "home_team_spread": spread,
                         "home_juice": home_juice,
                         "away_juice": away_juice,
+                        "home_ml_juice": home_ml_juice,
+                        "away_ml_juice": away_ml_juice,
                         "source": "odds_api_live",
                         "game_date": str(game_date) if game_date else None,
                     },
@@ -623,7 +685,7 @@ def get_live_odds_data(
         result = _find_oddspapi_spread(data, home_team, away_team)
         if result is None:
             continue
-        spread, hj, aj = result
+        spread, hj, aj, _hml, _aml = result
         all_spreads.append(spread)
         if book == "pinnacle":
             pinnacle_spread = spread
