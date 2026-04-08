@@ -17,6 +17,8 @@ import pandas as pd
 
 # Project root is four levels up from backend/app/data/cache.py
 _CACHE_PATH = Path(__file__).parents[3] / "data" / "score_cache.json"
+_COVER_CACHE_PATH = Path(__file__).parents[3] / "data" / "cover_score_cache.json"
+_COVER_CACHE_FULL_PATH = Path(__file__).parents[3] / "data" / "cover_score_cache_full_history.json"
 
 if TYPE_CHECKING:
     from app.prediction.models import FactorResult
@@ -44,6 +46,29 @@ def load_score_cache() -> dict[str, dict] | None:
     if not _CACHE_PATH.exists():
         return None
     with _CACHE_PATH.open() as f:
+        games: list[dict] = json.load(f)
+    return {g["game_id"]: g for g in games}
+
+
+def load_cover_score_cache() -> dict[str, dict] | None:
+    """Load the 7-factor cover score cache.
+
+    Tries cover_score_cache.json first, then cover_score_cache_full_history.json,
+    then falls back to score_cache.json (6-factor winner cache). Returns None if
+    no cache file exists.
+
+    Returns:
+        Dict keyed by "{home}-{away}-{game_date}", or None if no file is found.
+    """
+    if _COVER_CACHE_PATH.exists():
+        path = _COVER_CACHE_PATH
+    elif _COVER_CACHE_FULL_PATH.exists():
+        path = _COVER_CACHE_FULL_PATH
+    elif _CACHE_PATH.exists():
+        path = _CACHE_PATH
+    else:
+        return None
+    with path.open() as f:
         games: list[dict] = json.load(f)
     return {g["game_id"]: g for g in games}
 

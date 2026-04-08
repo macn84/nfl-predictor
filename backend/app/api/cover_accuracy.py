@@ -19,7 +19,7 @@ from app.api.accuracy import (
 )
 from app.config import settings
 from app.data import accuracy_cache
-from app.data.cache import apply_weights, load_score_cache
+from app.data.cache import apply_weights, load_cover_score_cache
 from app.data.loader import load_schedules
 from app.data.spreads import get_spread
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
@@ -75,7 +75,7 @@ def get_cover_accuracy(
     tier_stats: dict[str, dict[str, int]] = {t: {"correct": 0, "total": 0} for t in _TIER_ORDER}
     total_correct = 0
     total_picks = 0
-    score_cache = load_score_cache()
+    score_cache = load_cover_score_cache()
 
     for _, row in completed.iterrows():
         home = str(row["home_team"])
