@@ -131,6 +131,8 @@ def _team_nypp_series(
     Only REG season games before `before_date` (if provided) are included.
     Requires the opponent row for the same (season, week) to exist in team_stats.
     """
+    if team_stats.empty:
+        return []
     df = team_stats.copy()
     # Filter to REG season only (exclude playoffs)
     if "season_type" in df.columns:
