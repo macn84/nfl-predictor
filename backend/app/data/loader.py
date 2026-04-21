@@ -13,6 +13,8 @@ import pandas as pd
 from app.config import settings
 
 _schedules_memory: dict[str, pd.DataFrame] = {}
+_team_game_stats_memory: dict[str, pd.DataFrame] = {}
+_weekly_stats_memory: dict[str, pd.DataFrame] = {}
 
 
 def _cache_path(name: str) -> str:
@@ -58,11 +60,16 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
         DataFrame with one row per player per week.
     """
     name = f"weekly_{'_'.join(map(str, sorted(seasons)))}"
+    if not force_refresh and name in _weekly_stats_memory:
+        return _weekly_stats_memory[name]
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
+        _weekly_stats_memory[name] = df
+        return df
     df = nfl.load_player_stats(seasons).to_pandas()
     df.to_csv(path, index=False)
+    _weekly_stats_memory[name] = df
     return df
 
 
@@ -79,11 +86,16 @@ def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.
         Used to compute NYPP/SANYPP inside the form factor.
     """
     name = f"team_game_stats_{'_'.join(map(str, sorted(seasons)))}"
+    if not force_refresh and name in _team_game_stats_memory:
+        return _team_game_stats_memory[name]
     path = _cache_path(name)
     if not force_refresh and os.path.exists(path):
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
+        _team_game_stats_memory[name] = df
+        return df
     df = nfl.load_team_stats(seasons, summary_level="week").to_pandas()
     df.to_csv(path, index=False)
+    _team_game_stats_memory[name] = df
     return df
 
 
