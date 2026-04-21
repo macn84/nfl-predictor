@@ -89,9 +89,9 @@ export interface LLMGameResponse {
   game_id: string
   season: number
   week: number
-  explanation_winner: string | null  // Q1a — why this team wins outright
-  explanation_cover: string | null   // Q1b — why this team covers the spread
-  validation: string | null          // Q2  — real-world check (auth only; null when stripped)
+  verdict: 'AGREE' | 'DISAGREE' | 'FADE' | 'BOOST' | null
+  explain: string | null
+  flag: string | null  // real-world intel; null when unauthenticated or nothing notable
   generated_at: string | null
 }
 

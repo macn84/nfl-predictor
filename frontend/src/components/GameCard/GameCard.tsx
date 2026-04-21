@@ -153,16 +153,26 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: G
       )}
 
       <div className="mt-3 pt-3 border-t border-app-border space-y-2">
-        {/* Q1 — mode-appropriate explanation (authenticated users) */}
-        {isAuthenticated && (mode === 'predictions' ? llm?.explanation_winner : llm?.explanation_cover) && (
+        {/* Verdict badge — shown for non-AGREE signals only */}
+        {isAuthenticated && llm?.verdict && llm.verdict !== 'AGREE' && (
+          <span className={`inline-block text-xs font-mono font-semibold border rounded px-1.5 py-0.5 leading-none ${
+            llm.verdict === 'DISAGREE' ? 'text-app-red border-app-red/40' :
+            llm.verdict === 'FADE'     ? 'text-app-gold border-app-gold/40' :
+            /* BOOST */                  'text-app-green border-app-green/40'
+          }`}>
+            {llm.verdict}
+          </span>
+        )}
+        {/* Explain — unified cover pick rationale */}
+        {isAuthenticated && llm?.explain && (
           <p className="text-xs text-app-muted leading-relaxed">
-            {mode === 'predictions' ? llm!.explanation_winner : llm!.explanation_cover}
+            {llm.explain}
           </p>
         )}
-        {/* Q2 — real-world validation (authenticated, upcoming games only) */}
-        {isAuthenticated && isUpcoming && llm?.validation && (
+        {/* Flag — real-world intel (authenticated, upcoming games only) */}
+        {isAuthenticated && isUpcoming && llm?.flag && (
           <p className="text-xs text-app-gold leading-relaxed border-l-2 border-app-gold/40 pl-2">
-            {llm.validation}
+            {llm.flag}
           </p>
         )}
         {/* Footer row */}

@@ -3,8 +3,8 @@ api/llm.py — LLM analysis endpoints.
 
 POST /api/v1/llm/analyze/{week}?season=   — trigger analysis for all games in a week (auth)
 GET  /api/v1/llm/{week}?season=           — fetch stored responses for a week
-     - unauthenticated: explanation only (validation stripped)
-     - authenticated: explanation + validation
+     - unauthenticated: verdict + explain returned; flag stripped
+     - authenticated: full response including flag
 
 Locked + completed games are never re-analyzed (prediction of record is final).
 """
@@ -38,9 +38,9 @@ class LLMGameResponse(BaseModel):
     game_id: str
     season: int
     week: int
-    explanation_winner: str | None = None  # Q1a — why this team wins outright
-    explanation_cover: str | None = None   # Q1b — why this team covers the spread
-    validation: str | None = None          # Q2  — real-world check; stripped when unauthenticated
+    verdict: str | None = None      # AGREE | DISAGREE | FADE | BOOST
+    explain: str | None = None      # 1-2 sentence cover pick rationale
+    flag: str | None = None         # real-world info; stripped when unauthenticated
     generated_at: str | None = None
 
 
@@ -185,8 +185,8 @@ def get_llm_responses(
 ) -> LLMWeekResponse:
     """Return stored LLM responses for all games in a week.
 
-    - Authenticated: full response including validation insight (Q2).
-    - Unauthenticated: explanation only; validation is stripped.
+    - Authenticated: full response including flag.
+    - Unauthenticated: verdict + explain only; flag is stripped.
     """
     authenticated = current_user is not None
     raw = get_week_responses(season, week)
@@ -198,9 +198,9 @@ def get_llm_responses(
                 game_id=entry["game_id"],
                 season=entry["season"],
                 week=entry["week"],
-                explanation_winner=entry.get("explanation_winner"),
-                explanation_cover=entry.get("explanation_cover"),
-                validation=entry.get("validation") if authenticated else None,
+                verdict=entry.get("verdict"),
+                explain=entry.get("explain"),
+                flag=entry.get("flag") if authenticated else None,
                 generated_at=entry.get("generated_at"),
             )
         )
