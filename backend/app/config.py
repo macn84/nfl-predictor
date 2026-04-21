@@ -111,7 +111,7 @@ class Settings(BaseSettings):
 
     # Auth — set in backend/.env. Use AUTH_DISABLED=true for local dev.
     admin_username: str = ""
-    admin_password_hash: str = ""          # bcrypt hash; generate with passlib
+    admin_password_hash: str = ""          # bcrypt hash; generate with bcrypt.hashpw()
     secret_key: str = "dev-insecure-key"   # override in production
     access_token_expire_minutes: int = 10080  # 7 days
     auth_disabled: bool = False            # True = skip all auth checks (local dev)
