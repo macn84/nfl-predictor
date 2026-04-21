@@ -10,6 +10,8 @@ export const fixtureGame: GamePrediction = {
   predicted_winner: 'KC',
   confidence: 71.4,
   locked: false,
+  home_ml_juice: -145,
+  away_ml_juice: 125,
   factors: [
     {
       name: 'form',
