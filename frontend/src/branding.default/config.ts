@@ -5,6 +5,8 @@ export type BrandConfig = {
   navLogo: { src: string; alt: string } | null
   /** Full-width banner image at the top of the weekly dashboard. Null = no banner. */
   dashboardHeader: { src: string; alt: string } | null
+  /** URL the nav logo/title links to. Null = default to "/". */
+  logoLink: string | null
 }
 
 export const brand: BrandConfig = {
@@ -12,4 +14,5 @@ export const brand: BrandConfig = {
   appTagline: 'Game predictions powered by data',
   navLogo: null,
   dashboardHeader: null,
+  logoLink: null,
 }

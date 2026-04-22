@@ -12,7 +12,7 @@ function NavBar() {
 
   return (
     <nav className="bg-app-bg2 border-b-2 border-app-green px-6 flex items-stretch">
-      <Link to="/" className="flex items-center gap-3 py-3 mr-8 shrink-0">
+      <Link to={brand.logoLink ?? '/'} className="flex items-center gap-3 py-3 mr-8 shrink-0">
         {brand.navLogo ? (
           <img src={brand.navLogo.src} alt={brand.navLogo.alt} className="h-10 w-auto" />
         ) : (
