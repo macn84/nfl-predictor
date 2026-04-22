@@ -1,4 +1,6 @@
-import { Link, Route, Routes } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { pageview } from './analytics'
 import { brand } from './branding/config'
 import { ProtectedRoute } from './components/ProtectedRoute/ProtectedRoute'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -6,6 +8,14 @@ import { GameDetail } from './pages/GameDetail/GameDetail'
 import { Login } from './pages/Login/Login'
 import { SeasonTracker } from './pages/SeasonTracker/SeasonTracker'
 import { WeeklyDashboard } from './pages/WeeklyDashboard/WeeklyDashboard'
+
+function RouteTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    pageview(location.pathname + location.search)
+  }, [location])
+  return null
+}
 
 function NavBar() {
   const { isAuthenticated, username, logout } = useAuth()
@@ -72,6 +82,7 @@ function NavBar() {
 function AppRoutes() {
   return (
     <div className="min-h-screen bg-app-bg text-app-text">
+      <RouteTracker />
       <NavBar />
       <main className="px-6 py-6 max-w-7xl mx-auto">
         <Routes>
