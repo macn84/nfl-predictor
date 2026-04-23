@@ -1,0 +1,19 @@
+:root {
+  --brand-primary:      #3B82F6;
+  --brand-primary-soft: #60A5FA;
+  --brand-primary-dark: #1D4ED8;
+  --brand-glow:         #93C5FD;
+  --brand-bg:           #080B14;
+  --brand-bg2:          #0D1117;
+  --brand-bg3:          #111827;
+  --brand-surface:      #161D2B;
+  --brand-surface2:     #1E2736;
+  --brand-border:       #1F2D40;
+  --brand-glass:        rgba(16, 20, 40, 0.6);
+  --brand-text:         #F0F4F8;
+  --brand-muted:        #6B7FA3;
+  --brand-dim:          #3D4F6B;
+  --brand-accent:       #FFD700;
+  --brand-danger:       #E63946;
+  --brand-grid-line:    rgba(59, 130, 246, 0.012);
+}
