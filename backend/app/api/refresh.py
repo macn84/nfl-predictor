@@ -5,9 +5,10 @@ POST /api/v1/refresh — re-download schedule, weekly stats, and roster data
                         for the given season (and 3 prior seasons for historical context).
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.auth.deps import get_current_user
 from app.data import accuracy_cache
 from app.data.loader import load_rosters, load_schedules, load_weekly_stats
 
@@ -25,7 +26,7 @@ class RefreshResponse(BaseModel):
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-def refresh_data(body: RefreshRequest) -> RefreshResponse:
+def refresh_data(body: RefreshRequest, _: str = Depends(get_current_user)) -> RefreshResponse:
     """Trigger a force-refresh of all cached data for the given season.
 
     Downloads schedules for (season - 3)..season, weekly stats and rosters

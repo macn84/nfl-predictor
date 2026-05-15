@@ -43,7 +43,12 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
         df = pd.read_csv(path, low_memory=False)
         _schedules_memory[name] = df
         return df
-    df = nfl.load_schedules(seasons).to_pandas()
+    try:
+        df = nfl.load_schedules(seasons).to_pandas()
+    except Exception:
+        # Latest season may not be published yet — retry without it
+        fallback = [s for s in seasons if s < max(seasons)]
+        df = nfl.load_schedules(fallback).to_pandas() if fallback else pd.DataFrame()
     df.to_csv(path, index=False)
     _schedules_memory[name] = df
     return df
@@ -67,7 +72,11 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
         df = pd.read_csv(path, low_memory=False)
         _weekly_stats_memory[name] = df
         return df
-    df = nfl.load_player_stats(seasons).to_pandas()
+    try:
+        df = nfl.load_player_stats(seasons).to_pandas()
+    except Exception:
+        fallback = [s for s in seasons if s < max(seasons)]
+        df = nfl.load_player_stats(fallback).to_pandas() if fallback else pd.DataFrame()
     df.to_csv(path, index=False)
     _weekly_stats_memory[name] = df
     return df
@@ -93,7 +102,11 @@ def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.
         df = pd.read_csv(path, low_memory=False)
         _team_game_stats_memory[name] = df
         return df
-    df = nfl.load_team_stats(seasons, summary_level="week").to_pandas()
+    try:
+        df = nfl.load_team_stats(seasons, summary_level="week").to_pandas()
+    except Exception:
+        fallback = [s for s in seasons if s < max(seasons)]
+        df = nfl.load_team_stats(fallback, summary_level="week").to_pandas() if fallback else pd.DataFrame()
     df.to_csv(path, index=False)
     _team_game_stats_memory[name] = df
     return df

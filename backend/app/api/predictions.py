@@ -197,7 +197,7 @@ def list_weeks(season: int = Query(..., description="NFL season year, e.g. 2024"
     schedules = load_schedules(seasons)
     season_games = schedules[schedules["season"] == season]
     if season_games.empty:
-        raise HTTPException(status_code=404, detail=f"No schedule data found for season {season}")
+        return WeeksResponse(season=season, weeks=[])
 
     weeks: list[WeekSummary] = []
     for week_num, group in season_games.groupby("week"):

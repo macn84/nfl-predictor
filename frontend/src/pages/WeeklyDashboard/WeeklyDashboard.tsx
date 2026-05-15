@@ -91,9 +91,7 @@ export function WeeklyDashboard() {
     setSearchParams({ season: String(newSeason) })
   }
 
-  if (weeksError) {
-    return <div className="text-app-red p-4 font-mono">Error loading weeks: {weeksError}</div>
-  }
+  const noData = !weeksLoading && !weeksError && visibleWeeks.length === 0
 
   return (
     <div>
@@ -170,6 +168,8 @@ export function WeeklyDashboard() {
 
       {weeksLoading ? (
         <div className="text-app-muted mb-4 font-mono text-sm">Loading weeks…</div>
+      ) : weeksError ? (
+        <div className="text-app-red mb-4 font-mono text-sm">Error loading weeks: {weeksError}</div>
       ) : visibleWeeks.length > 0 ? (
         <div className="mb-6">
           <WeekSelector
@@ -180,37 +180,45 @@ export function WeeklyDashboard() {
         </div>
       ) : null}
 
-      {error && (
-        <div className="text-app-red mb-4 font-mono text-sm">Error loading games: {error}</div>
-      )}
-
-      {loading ? (
-        <div className="text-app-muted font-mono text-sm">Loading predictions…</div>
-      ) : mode === 'predictions' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedPredictions.map((game) => (
-            <GameCard
-              key={game.game_id}
-              game={game}
-              mode="predictions"
-              season={season}
-              llm={llmResponses[game.game_id] ?? null}
-            />
-          ))}
+      {noData ? (
+        <div className="text-app-muted font-mono text-sm py-8 text-center">
+          No schedule data available yet for the {season} season.
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedCovers.map((game) => (
-            <GameCard
-              key={game.game_id}
-              game={game}
-              mode="covers"
-              season={season}
-              edgeThreshold={config.cover_edge_threshold}
-              llm={llmResponses[game.game_id] ?? null}
-            />
-          ))}
-        </div>
+        <>
+          {error && (
+            <div className="text-app-red mb-4 font-mono text-sm">Error loading games: {error}</div>
+          )}
+
+          {loading ? (
+            <div className="text-app-muted font-mono text-sm">Loading predictions…</div>
+          ) : mode === 'predictions' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedPredictions.map((game) => (
+                <GameCard
+                  key={game.game_id}
+                  game={game}
+                  mode="predictions"
+                  season={season}
+                  llm={llmResponses[game.game_id] ?? null}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedCovers.map((game) => (
+                <GameCard
+                  key={game.game_id}
+                  game={game}
+                  mode="covers"
+                  season={season}
+                  edgeThreshold={config.cover_edge_threshold}
+                  llm={llmResponses[game.game_id] ?? null}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
