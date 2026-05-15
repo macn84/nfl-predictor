@@ -13,8 +13,8 @@ import { useLLM } from '../../hooks/useLLM'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
-const CURRENT_SEASON = 2025
-const AVAILABLE_SEASONS = [2021, 2022, 2023, 2024, 2025]
+const CURRENT_SEASON = 2026
+const AVAILABLE_SEASONS = [2021, 2022, 2023, 2024, 2025, 2026]
 
 export type PredictionMode = 'predictions' | 'covers'
 

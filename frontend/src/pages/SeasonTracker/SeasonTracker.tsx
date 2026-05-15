@@ -4,7 +4,7 @@ import { useAccuracy } from '../../hooks/useAccuracy'
 import { useCoverAccuracy } from '../../hooks/useCoverAccuracy'
 import type { AccuracyResponse } from '../../api/types'
 
-const CURRENT_SEASON = 2024
+const CURRENT_SEASON = 2025
 
 type AccuracyMode = 'winner' | 'cover'
 
