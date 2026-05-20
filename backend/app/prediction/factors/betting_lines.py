@@ -81,6 +81,8 @@ _NFL_TEAM_PATTERNS: dict[str, str] = {
 # Discovered NFL IDs — lazy-initialized on first live call, stable within a season.
 _oddspapi_nfl_sport_id: int | None = None
 _oddspapi_nfl_tournament_id: int | None = None
+_oddspapi_discovery_failed_at: float = 0.0   # timestamp of last discovery failure
+_DISCOVERY_RETRY_SECONDS = 3600              # wait 1 hour before retrying after failure
 
 _oddspapi_cache: list[dict[str, Any]] | None = None
 _oddspapi_cache_ts: float = 0.0
@@ -141,10 +143,14 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
     Makes two API calls on first invocation; returns cached values thereafter.
     Returns (sport_id, tournament_id) or None on failure.
     """
-    global _oddspapi_nfl_sport_id, _oddspapi_nfl_tournament_id
+    global _oddspapi_nfl_sport_id, _oddspapi_nfl_tournament_id, _oddspapi_discovery_failed_at
 
     if _oddspapi_nfl_sport_id is not None and _oddspapi_nfl_tournament_id is not None:
         return (_oddspapi_nfl_sport_id, _oddspapi_nfl_tournament_id)
+
+    # Don't hammer the API after a recent failure — wait for the retry window.
+    if _oddspapi_discovery_failed_at and (time.time() - _oddspapi_discovery_failed_at) < _DISCOVERY_RETRY_SECONDS:
+        return None
 
     key = settings.oddspapi_api_key
 
@@ -159,6 +165,7 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
         sports: list[dict] = resp.json()
     except Exception as exc:
         logger.warning("OddspaPI /sports failed: %s", str(exc).replace(key, "***"))
+        _oddspapi_discovery_failed_at = time.time()
         return None
 
     sport_id: int | None = None
@@ -171,6 +178,7 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
 
     if sport_id is None:
         logger.warning("OddspaPI: NFL sport not found in %s", [s.get("slug") for s in sports])
+        _oddspapi_discovery_failed_at = time.time()
         return None
 
     # Step 2: find NFL regular-season tournament ID
@@ -184,6 +192,7 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
         tournaments: list[dict] = resp.json()
     except Exception as exc:
         logger.warning("OddspaPI /tournaments failed: %s", str(exc).replace(key, "***"))
+        _oddspapi_discovery_failed_at = time.time()
         return None
 
     tournament_id: int | None = None
@@ -206,6 +215,7 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
     if tournament_id is None:
         slugs = [t.get("tournamentSlug") for t in tournaments]
         logger.warning("OddspaPI: no upcoming NFL tournament found among: %s", slugs)
+        _oddspapi_discovery_failed_at = time.time()
         return None
 
     _oddspapi_nfl_sport_id = sport_id
@@ -247,11 +257,15 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
             )
             resp.raise_for_status()
             data: list[dict] = resp.json()
+            # Cache even an empty list — off-season returns [] and we don't want to
+            # re-call the API for every game in the same request.
+            _oddspapi_cache = data
+            _oddspapi_cache_ts = time.time()
             if data:
-                _oddspapi_cache = data
-                _oddspapi_cache_ts = time.time()
                 logger.info("OddspaPI: fetched %d fixtures via %s", len(data), bookmaker)
-                return _oddspapi_cache
+            else:
+                logger.info("OddspaPI: no fixtures for %s (off-season?)", bookmaker)
+            return _oddspapi_cache
         except Exception as exc:
             logger.warning(
                 "OddspaPI /odds-by-tournaments (%s) failed: %s",
@@ -259,6 +273,9 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
                 str(exc).replace(key, "***"),
             )
 
+    # All bookmakers failed — cache an empty result so we don't retry per-game.
+    _oddspapi_cache = []
+    _oddspapi_cache_ts = time.time()
     return None
 
 
