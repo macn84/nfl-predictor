@@ -209,7 +209,10 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     # ------------------------------------------------------------------
     # Step 1: Data refresh
     # ------------------------------------------------------------------
-    history_seasons = list(range(2015, season + 1))
+    # Include the upcoming season so the scheduler can pre-cache its games
+    # when nflverse releases the schedule early (e.g. May–August off-season).
+    next_season = season + 1
+    history_seasons = list(range(2015, next_season + 1))
     schedules = load_schedules(history_seasons, force_refresh=True)
     team_stats = load_team_game_stats(history_seasons, force_refresh=True)
     load_weekly_stats([season], force_refresh=True)
@@ -327,6 +330,48 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
         logger.info(
             "Current week %d: %d upcoming games refreshed", current_week, week_new
         )
+
+    # ------------------------------------------------------------------
+    # Step 4b: Pre-populate next season's upcoming games if schedule data
+    # is already available (e.g. NFL releases the schedule in May/June).
+    # ------------------------------------------------------------------
+    next_season_games = schedules[schedules["season"] == next_season]
+    if not next_season_games.empty:
+        next_week = _current_week(schedules, next_season)
+        if next_week is not None:
+            next_week_games = next_season_games[next_season_games["week"] == next_week]
+            next_new = 0
+            for _, row in next_week_games.iterrows():
+                home = str(row["home_team"])
+                away = str(row["away_team"])
+                game_date = _parse_gameday(row)
+                if game_date is None:
+                    continue
+                is_completed = pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
+                if is_completed:
+                    continue
+                cache_key = f"{home}-{away}-{game_date}"
+                old_entry = existing.pop(cache_key, None)
+                old_opening_spread = old_entry.get("opening_spread") if old_entry else None
+                old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+                try:
+                    _add_to_cache(home, away, next_season, game_date, schedules, team_stats, existing)
+                    new_entry = existing.get(cache_key)
+                    if new_entry is not None:
+                        if old_opening_spread is not None:
+                            new_entry["opening_spread"] = old_opening_spread
+                            new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                        apply_opening_spread(new_entry, new_entry.get("live_spread"))
+                    newly_cached += 1
+                    next_new += 1
+                except Exception:
+                    logger.warning(
+                        "Failed to cache next-season game %s vs %s (%s)",
+                        home, away, game_date, exc_info=True,
+                    )
+            logger.info(
+                "Next season %d week %d: %d upcoming games refreshed", next_season, next_week, next_new
+            )
 
     # ------------------------------------------------------------------
     # Step 5: Write updated cache to disk
