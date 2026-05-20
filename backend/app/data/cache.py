@@ -108,6 +108,7 @@ def lock_game_to_cache(
     cache_key = f"{home}-{away}-{game_date}" if game_date else f"{home}-{away}"
     cache_entry: dict = {
         "game_id": cache_key,
+        "locked": True,
         "factors": {
             f.name: {
                 "score": f.score,

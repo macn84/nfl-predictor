@@ -43,14 +43,15 @@ _scheduler: BackgroundScheduler | None = None
 def _current_nfl_season() -> int:
     """Return the current NFL season year.
 
-    NFL seasons start in September. Any month before August is treated as the
-    tail-end of the prior season (e.g. March 2026 → 2025 season).
+    NFL seasons end in February (Super Bowl). March onward belongs to the
+    upcoming season — the schedule is typically released in April/May and
+    pre-season caching should target the new year.
 
     Returns:
-        Four-digit season year (e.g. 2025).
+        Four-digit season year (e.g. 2026).
     """
     today = date.today()
-    return today.year if today.month >= 8 else today.year - 1
+    return today.year if today.month >= 3 else today.year - 1
 
 
 def _current_week(schedules: pd.DataFrame, season: int) -> int | None:
@@ -287,49 +288,56 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     )
 
     # ------------------------------------------------------------------
-    # Step 4: Pre-populate current week (upcoming / in-progress games)
+    # Step 4: Pre-populate all upcoming games for the current season.
+    # Current week: always evict + recompute (fresh odds/weather).
+    # Future weeks: add to cache only if not already present.
     # ------------------------------------------------------------------
     week_new = 0
-    if current_week is not None:
-        week_games = season_games[season_games["week"] == current_week]
-        for _, row in week_games.iterrows():
-            home = str(row["home_team"])
-            away = str(row["away_team"])
-            game_date = _parse_gameday(row)
-            if game_date is None:
-                continue
-            is_completed = pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
-            if is_completed:
-                continue  # already handled above
-            # Always evict the existing entry so each scheduler run fetches fresh
-            # odds and weather for upcoming games — but preserve opening_spread.
-            cache_key = f"{home}-{away}-{game_date}"
+    upcoming_games = season_games[
+        season_games["home_score"].isna() | season_games["away_score"].isna()
+    ]
+    for _, row in upcoming_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        game_date = _parse_gameday(row)
+        if game_date is None:
+            continue
+        cache_key = f"{home}-{away}-{game_date}"
+        is_current_week = current_week is not None and row.get("week") == current_week
+        old_opening_spread: float | None = None
+        old_opening_spread_ts: str | None = None
+        if is_current_week:
+            # Always evict current-week entries so each scheduler run fetches
+            # fresh odds and weather — but preserve the captured opening spread.
             old_entry = existing.pop(cache_key, None)
-            old_opening_spread: float | None = old_entry.get("opening_spread") if old_entry else None
-            old_opening_spread_ts: str | None = old_entry.get("opening_spread_captured_at") if old_entry else None
-            try:
-                _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
+            old_opening_spread = old_entry.get("opening_spread") if old_entry else None
+            old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+        try:
+            added = _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
+            if is_current_week:
                 new_entry = existing.get(cache_key)
                 if new_entry is not None:
-                    # Restore previously captured opening spread before applying logic.
                     if old_opening_spread is not None:
                         new_entry["opening_spread"] = old_opening_spread
                         new_entry["opening_spread_captured_at"] = old_opening_spread_ts
                     apply_opening_spread(new_entry, new_entry.get("live_spread"))
+            if added:
                 week_new += 1
                 newly_cached += 1
-            except Exception:
-                logger.warning(
-                    "Failed to cache upcoming game %s vs %s (%s)",
-                    home,
-                    away,
-                    game_date,
-                    exc_info=True,
-                )
+        except Exception:
+            logger.warning(
+                "Failed to cache upcoming game %s vs %s (%s)",
+                home,
+                away,
+                game_date,
+                exc_info=True,
+            )
 
-        logger.info(
-            "Current week %d: %d upcoming games refreshed", current_week, week_new
-        )
+    logger.info(
+        "Current week %s: %d upcoming games refreshed/cached across all weeks",
+        current_week,
+        week_new,
+    )
 
     # ------------------------------------------------------------------
     # Step 4b: Pre-populate next season's upcoming games if schedule data
@@ -338,39 +346,43 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     next_season_games = schedules[schedules["season"] == next_season]
     if not next_season_games.empty:
         next_week = _current_week(schedules, next_season)
-        if next_week is not None:
-            next_week_games = next_season_games[next_season_games["week"] == next_week]
-            next_new = 0
-            for _, row in next_week_games.iterrows():
-                home = str(row["home_team"])
-                away = str(row["away_team"])
-                game_date = _parse_gameday(row)
-                if game_date is None:
-                    continue
-                is_completed = pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
-                if is_completed:
-                    continue
-                cache_key = f"{home}-{away}-{game_date}"
+        next_new = 0
+        upcoming_next = next_season_games[
+            next_season_games["home_score"].isna() | next_season_games["away_score"].isna()
+        ]
+        for _, row in upcoming_next.iterrows():
+            home = str(row["home_team"])
+            away = str(row["away_team"])
+            game_date = _parse_gameday(row)
+            if game_date is None:
+                continue
+            cache_key = f"{home}-{away}-{game_date}"
+            is_current_week = next_week is not None and row.get("week") == next_week
+            if is_current_week:
+                # Evict so each scheduler run fetches fresh odds for the imminent week.
                 old_entry = existing.pop(cache_key, None)
                 old_opening_spread = old_entry.get("opening_spread") if old_entry else None
                 old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
-                try:
-                    _add_to_cache(home, away, next_season, game_date, schedules, team_stats, existing)
+            try:
+                added = _add_to_cache(home, away, next_season, game_date, schedules, team_stats, existing)
+                if is_current_week:
                     new_entry = existing.get(cache_key)
                     if new_entry is not None:
                         if old_opening_spread is not None:
                             new_entry["opening_spread"] = old_opening_spread
                             new_entry["opening_spread_captured_at"] = old_opening_spread_ts
                         apply_opening_spread(new_entry, new_entry.get("live_spread"))
+                if added:
                     newly_cached += 1
                     next_new += 1
-                except Exception:
-                    logger.warning(
-                        "Failed to cache next-season game %s vs %s (%s)",
-                        home, away, game_date, exc_info=True,
-                    )
+            except Exception:
+                logger.warning(
+                    "Failed to cache next-season game %s vs %s (%s)",
+                    home, away, game_date, exc_info=True,
+                )
+        if next_new:
             logger.info(
-                "Next season %d week %d: %d upcoming games refreshed", next_season, next_week, next_new
+                "Next season %d: %d upcoming games cached (current week=%s)", next_season, next_new, next_week
             )
 
     # ------------------------------------------------------------------

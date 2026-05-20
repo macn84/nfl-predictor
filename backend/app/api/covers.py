@@ -136,7 +136,7 @@ def _cover_week_games(
             home_juice = cached.get("home_juice")
             away_juice = cached.get("away_juice")
             factors: list[FactorResult] = []
-            locked = not is_completed
+            locked = score_cache[cache_key].get("locked", False)  # only True when explicitly locked
         else:
             pred: CoverPredictionResult = predict_cover(
                 home, away, season, schedules=schedules, game_date=game_date
@@ -238,7 +238,7 @@ def get_game_cover(
             pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
         )
         in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
-        locked = in_cache and not is_completed
+        locked = in_cache and (score_cache or {}).get(cache_key, {}).get("locked", False)
 
         pred: CoverPredictionResult = predict_cover(
             home, away, season, schedules=schedules, game_date=game_date

@@ -155,14 +155,18 @@ def _call_anthropic_structured(system_prompt: str, user_message: str) -> dict[st
         return {"verdict": "AGREE", "explain": _STUB_EXPLAIN, "flag": None}
 
     client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=120,
-        system=system_prompt,
-        tools=[ANALYZE_PICK_TOOL],
-        tool_choice={"type": "tool", "name": "analyze_pick"},
-        messages=[{"role": "user", "content": user_message}],
-    )
+    try:
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=120,
+            system=system_prompt,
+            tools=[ANALYZE_PICK_TOOL],
+            tool_choice={"type": "tool", "name": "analyze_pick"},
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except Exception:
+        logger.error("Anthropic API call failed; returning stub", exc_info=True)
+        return {"verdict": "AGREE", "explain": _STUB_EXPLAIN, "flag": None}
 
     tool_block = next(
         (b for b in response.content if b.type == "tool_use"),

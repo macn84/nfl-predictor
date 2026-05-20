@@ -136,7 +136,7 @@ def _predict_week_games(
             weighted_sum, confidence = apply_weights(score_cache[key], settings.weights)
             predicted_winner = home if weighted_sum >= 0 else away
             factors: list[FactorResult] = []
-            locked = not is_completed  # completed games are in cache for perf, not "locked"
+            locked = score_cache[key].get("locked", False)  # only True when explicitly locked
             home_ml_juice = score_cache[key].get("home_ml_juice")
             away_ml_juice = score_cache[key].get("away_ml_juice")
         elif auto_lock and game_date is not None and game_date <= today and not is_completed:
