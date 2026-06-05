@@ -78,6 +78,11 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `validation/backtest.py` | `--mode cover` uses `cover_score_cache.json` + `COVER_MARGIN_*` |
 | `validation/analyse_confidence.py` | `--target cover` auto-detects cover results + cache files |
 
+## Dev
+- `make dev` — starts both servers (backend :8000, frontend :5173)
+- `make test` / `make lint` — pytest + ruff / vitest + eslint
+- `make setup-private` — apply private overlay (run from `nfl-predictor/`)
+
 ## Code Conventions
 
 - Type hints on all signatures; Pydantic models for API schemas; Google-style docstrings
