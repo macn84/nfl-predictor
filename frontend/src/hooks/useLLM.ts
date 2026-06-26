@@ -57,22 +57,31 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
     async (force = false) => {
       // Stamp this analyze() call so stale poll loops from prior calls can bail out.
       const generation = ++generationRef.current
+      console.log('[useLLM] analyze() started generation=%d season=%d week=%d mode=%s', generation, season, week, mode)
       setAnalyzing(true)
       setError(null)
       try {
         // POST returns 202 immediately; analysis runs in the background.
         await triggerLLMAnalysis(season, week, force, mode)
+        console.log('[useLLM] POST 202 received, starting poll')
 
         // Poll GET until all games have real (non-stub) responses.
         let attempts = 0
         const poll = async () => {
           // A newer analyze() call or a week/mode change has superseded this loop.
-          if (generationRef.current !== generation) return
+          if (generationRef.current !== generation) {
+            console.log('[useLLM] poll() bailed — generation mismatch (cur=%d expected=%d)', generationRef.current, generation)
+            return
+          }
           attempts++
+          console.log('[useLLM] poll() attempt=%d generation=%d', attempts, generation)
           try {
             const data = await fetchLLMResponses(season, week, mode)
             // Re-check after the async fetch — generation may have advanced.
-            if (generationRef.current !== generation) return
+            if (generationRef.current !== generation) {
+              console.log('[useLLM] poll() bailed after fetch — generation mismatch (cur=%d expected=%d)', generationRef.current, generation)
+              return
+            }
 
             setResponses(toMap(data.games))
 
@@ -85,13 +94,18 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
             const noEligibleGames =
               data.games.length === 0 && attempts >= POLL_EMPTY_THRESHOLD
 
+            console.log('[useLLM] poll() result: games=%d allReal=%s noEligibleGames=%s attempts=%d', data.games.length, allReal, noEligibleGames, attempts)
+
             if (!allReal && !noEligibleGames && attempts < POLL_MAX_ATTEMPTS) {
+              console.log('[useLLM] poll() scheduling next attempt in %dms', POLL_INTERVAL_MS)
               pollTimerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS)
             } else {
+              console.log('[useLLM] poll() stopping — allReal=%s noEligibleGames=%s attempts=%d', allReal, noEligibleGames, attempts)
               if (noEligibleGames) setError('No games available for LLM analysis this week')
               setAnalyzing(false)
             }
           } catch (e) {
+            console.error('[useLLM] poll() fetch error:', e)
             if (generationRef.current === generation) {
               setError(e instanceof Error ? e.message : 'Poll failed')
               setAnalyzing(false)
@@ -100,6 +114,7 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
         }
         void poll()
       } catch (e) {
+        console.error('[useLLM] POST error:', e)
         if (generationRef.current === generation) {
           setError(e instanceof Error ? e.message : 'Analysis failed')
           setAnalyzing(false)
@@ -113,6 +128,7 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
   // poll closure (including fetches already awaited), and cancel the pending timer.
   useEffect(() => {
     return () => {
+      console.log('[useLLM] cleanup — incrementing generation (was %d) season=%d week=%d mode=%s', generationRef.current, season, week, mode)
       generationRef.current++
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
     }
