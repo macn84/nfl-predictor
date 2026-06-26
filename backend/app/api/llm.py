@@ -57,6 +57,7 @@ class LLMAnalyzeResponse(BaseModel):
     week: int
     analyzed: int
     skipped: int
+    eligible: int = 0   # games queued for analysis; poll until games.length >= this
     queued: bool = False
 
 
@@ -252,6 +253,7 @@ def analyze_week(
         week=week,
         analyzed=0,
         skipped=len(week_games) - eligible,
+        eligible=eligible,
         queued=True,
     )
 

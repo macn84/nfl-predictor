@@ -66,10 +66,11 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
       setError(null)
       try {
         // POST returns 202 immediately; analysis runs in the background.
-        await triggerLLMAnalysis(season, week, force, mode)
-        console.log('[useLLM] POST 202 received, starting poll')
+        const postData = await triggerLLMAnalysis(season, week, force, mode)
+        const expectedGames = postData.eligible
+        console.log('[useLLM] POST 202 received, starting poll — expectedGames=%d', expectedGames)
 
-        // Poll GET until all games have real (non-stub) responses.
+        // Poll GET until all eligible games have real (non-stub) responses.
         let attempts = 0
         const poll = async () => {
           // A newer analyze() call or a week/mode change has superseded this loop.
@@ -91,14 +92,18 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
 
             setResponses(toMap(data.games))
 
+            // allReal: we have all expected games AND every one has a non-stub explain.
+            // expectedGames=0 means the week had no eligible games (all completed/skipped).
             const allReal =
-              data.games.length > 0 &&
+              expectedGames > 0 &&
+              data.games.length >= expectedGames &&
               data.games.every(g => g.explain && !g.explain.startsWith(STUB_EXPLAIN))
 
-            // An empty response that persists past the threshold means the
-            // background task ran but all games were skipped (e.g. completed week).
+            // noEligibleGames: backend reported 0 eligible games (all completed/skipped),
+            // OR we've polled past the threshold without getting any results.
             const noEligibleGames =
-              data.games.length === 0 && attempts >= POLL_EMPTY_THRESHOLD
+              expectedGames === 0 ||
+              (data.games.length === 0 && attempts >= POLL_EMPTY_THRESHOLD)
 
             console.log('[useLLM] poll() result: games=%d allReal=%s noEligibleGames=%s attempts=%d', data.games.length, allReal, noEligibleGames, attempts)
 

@@ -107,6 +107,8 @@ export interface LLMAnalyzeResponse {
   week: number
   analyzed: number
   skipped: number
+  /** Number of games queued for analysis. Poll until games.length >= eligible. */
+  eligible: number
 }
 
 export interface AccuracyResponse {
