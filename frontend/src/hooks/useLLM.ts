@@ -91,8 +91,11 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
               if (noEligibleGames) setError('No games available for LLM analysis this week')
               setAnalyzing(false)
             }
-          } catch {
-            if (generationRef.current === generation) setAnalyzing(false)
+          } catch (e) {
+            if (generationRef.current === generation) {
+              setError(e instanceof Error ? e.message : 'Poll failed')
+              setAnalyzing(false)
+            }
           }
         }
         void poll()
