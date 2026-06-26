@@ -5,7 +5,7 @@ import type { LLMGameResponse } from '../api/types'
 
 const STUB_EXPLAIN = 'Model analysis not available'
 const POLL_INTERVAL_MS = 4000
-const POLL_MAX_ATTEMPTS = 30
+const POLL_MAX_ATTEMPTS = 60
 /**
  * After this many consecutive attempts with zero games returned, treat the week as having
  * no eligible games. Must be large enough to survive the background task's full runtime
