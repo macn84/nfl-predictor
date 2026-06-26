@@ -67,6 +67,7 @@ export function WeeklyDashboard() {
   const { responses: llmResponses, analyzing, error: llmError, analyze } = useLLM(
     season,
     selectedWeek,
+    mode === 'predictions' ? 'winner' : 'cover',
   )
 
   const sortedPredictions = useMemo(

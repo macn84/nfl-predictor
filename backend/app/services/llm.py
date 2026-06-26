@@ -7,11 +7,11 @@ Falls back to stub mode if:
   - The `anthropic` package is not installed
   - Prompt files are missing from PROMPTS_DIR
 
-Storage: data/llm_responses.json, keyed by "{season}-{week}-{game_id}".
+Storage: data/llm_responses.json, keyed by "{season}-{week}-{game_id}-{mode}".
 
-Each game produces one LLM call (via tool_use) returning:
+Each game produces one LLM call per mode (via tool_use) returning:
   verdict  — AGREE | DISAGREE | FADE | BOOST
-  explain  — 1-2 sentence cover pick rationale
+  explain  — 1-2 sentence pick rationale
   flag     — material real-world info the model cannot see, or None
 """
 
@@ -21,7 +21,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.config import settings
 
@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 _RESPONSES_FILENAME = "llm_responses.json"
 _STUB_EXPLAIN = "Model analysis not available — configure ANTHROPIC_API_KEY and prompts to enable."
+
+AnalysisMode = Literal["cover", "winner"]
 
 ANALYZE_PICK_TOOL: dict[str, Any] = {
     "name": "analyze_pick",
@@ -54,6 +56,42 @@ ANALYZE_PICK_TOOL: dict[str, Any] = {
         },
         "required": ["verdict", "explain", "flag"],
     },
+}
+
+ANALYZE_WINNER_TOOL: dict[str, Any] = {
+    "name": "analyze_pick",
+    "description": (
+        "Record your verdict on the model's outright winner pick. "
+        "verdict: AGREE=direction correct and confidence calibrated; "
+        "DISAGREE=pick direction is wrong; "
+        "FADE=direction correct but confidence too HIGH (over-confident); "
+        "BOOST=direction correct but confidence too LOW (under-confident). "
+        "explain: 1-2 sentences — pick rationale, top 2 factors, name teams. "
+        "flag: 1 sentence on material real-world info the model cannot see "
+        "(injuries, sharp action, weather, lineup changes). Null if nothing notable."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["AGREE", "DISAGREE", "FADE", "BOOST"],
+            },
+            "explain": {"type": "string"},
+            "flag": {"type": ["string", "null"]},
+        },
+        "required": ["verdict", "explain", "flag"],
+    },
+}
+
+_TOOL_BY_MODE: dict[AnalysisMode, dict[str, Any]] = {
+    "cover": ANALYZE_PICK_TOOL,
+    "winner": ANALYZE_WINNER_TOOL,
+}
+
+_PROMPT_FILES: dict[AnalysisMode, tuple[str, str]] = {
+    "cover": ("system.md", "analysis.md"),
+    "winner": ("system_winner.md", "analysis_winner.md"),
 }
 
 
@@ -104,7 +142,7 @@ def _margin_text(game: dict[str, Any]) -> str:
 
 
 def _build_prompt_context(game: dict[str, Any]) -> dict[str, str]:
-    """Build template variable map for analysis.md. See MODEL-SECRETS.md for full mapping."""
+    """Build template variable map for prompt templates. See MODEL-SECRETS.md for full mapping."""
     winner: str = game.get("predicted_winner") or "N/A"
     cover: str = game.get("predicted_cover") or winner
     split_note = (
@@ -127,10 +165,11 @@ def _build_prompt_context(game: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _build_unified_prompt(game: dict[str, Any]) -> tuple[str, str]:
-    """Return (system_prompt, user_message) for a single unified analysis call."""
-    system = _load_prompt("system.md")
-    template = _load_prompt("analysis.md")
+def _build_prompt(game: dict[str, Any], mode: AnalysisMode) -> tuple[str, str]:
+    """Return (system_prompt, user_message) for the given mode."""
+    system_file, template_file = _PROMPT_FILES[mode]
+    system = _load_prompt(system_file)
+    template = _load_prompt(template_file)
     if not system or not template:
         return "", ""
     return system, template.format(**_build_prompt_context(game))
@@ -141,7 +180,11 @@ def _build_unified_prompt(game: dict[str, Any]) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _call_anthropic_structured(system_prompt: str, user_message: str) -> dict[str, Any]:
+def _call_anthropic_structured(
+    system_prompt: str,
+    user_message: str,
+    tool: dict[str, Any],
+) -> dict[str, Any]:
     """Call the Anthropic API using tool_use to force structured output."""
     try:
         import anthropic  # type: ignore[import]
@@ -160,7 +203,7 @@ def _call_anthropic_structured(system_prompt: str, user_message: str) -> dict[st
             model=settings.anthropic_model,
             max_tokens=120,
             system=system_prompt,
-            tools=[ANALYZE_PICK_TOOL],
+            tools=[tool],
             tool_choice={"type": "tool", "name": "analyze_pick"},
             messages=[{"role": "user", "content": user_message}],
         )
@@ -210,8 +253,8 @@ def _save_llm_responses(responses: dict[str, dict[str, Any]]) -> None:
     path.write_text(json.dumps(responses, indent=2), encoding="utf-8")
 
 
-def _response_key(season: int, week: int, game_id: str) -> str:
-    return f"{season}-{week}-{game_id}"
+def _response_key(season: int, week: int, game_id: str, mode: AnalysisMode) -> str:
+    return f"{season}-{week}-{game_id}-{mode}"
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +266,7 @@ def analyze_game(
     game: dict[str, Any],
     *,
     force: bool = False,
+    mode: AnalysisMode = "cover",
 ) -> dict[str, Any]:
     """Generate a structured LLM analysis for a game.
 
@@ -231,6 +275,7 @@ def analyze_game(
               gameday, predicted_winner, winner_confidence, predicted_cover,
               cover_confidence, spread, predicted_margin, factors (list).
         force: Re-run even if a response already exists in the cache.
+        mode: "cover" (default) or "winner" — selects prompt templates and tool.
 
     Returns:
         Dict with verdict, explain, flag, generated_at.
@@ -238,24 +283,32 @@ def analyze_game(
     season = game["season"]
     week = game["week"]
     game_id = game["game_id"]
-    key = _response_key(season, week, game_id)
+    key = _response_key(season, week, game_id, mode)
 
     responses = load_llm_responses()
     if not force and key in responses:
-        return responses[key]
+        cached = responses[key]
+        # Treat previously-stored stubs as cache misses so real analysis runs
+        if cached.get("explain") != _STUB_EXPLAIN:
+            return cached
 
-    system_text, user_msg = _build_unified_prompt(game)
+    system_text, user_msg = _build_prompt(game, mode)
 
     if not system_text or not user_msg:
-        logger.warning("Prompt templates missing from %s; using stubs", settings.prompts_dir)
+        logger.warning(
+            "Prompt templates missing from %s for mode=%s; using stubs",
+            settings.prompts_dir,
+            mode,
+        )
         result: dict[str, Any] = {"verdict": "AGREE", "explain": _STUB_EXPLAIN, "flag": None}
     else:
-        result = _call_anthropic_structured(system_text, user_msg)
+        result = _call_anthropic_structured(system_text, user_msg, tool=_TOOL_BY_MODE[mode])
 
     entry: dict[str, Any] = {
         "game_id": game_id,
         "season": season,
         "week": week,
+        "mode": mode,
         "verdict": result["verdict"],
         "explain": result["explain"],
         "flag": result["flag"],
@@ -266,8 +319,13 @@ def analyze_game(
     return entry
 
 
-def get_week_responses(season: int, week: int) -> list[dict[str, Any]]:
-    """Return all stored LLM responses for a given season/week."""
+def get_week_responses(
+    season: int,
+    week: int,
+    mode: AnalysisMode = "cover",
+) -> list[dict[str, Any]]:
+    """Return all stored LLM responses for a given season/week/mode."""
     responses = load_llm_responses()
     prefix = f"{season}-{week}-"
-    return [v for k, v in responses.items() if k.startswith(prefix)]
+    suffix = f"-{mode}"
+    return [v for k, v in responses.items() if k.startswith(prefix) and k.endswith(suffix)]

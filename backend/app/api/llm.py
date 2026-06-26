@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user, get_optional_user
@@ -23,7 +23,7 @@ from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict, predict_cover
-from app.services.llm import analyze_game, get_week_responses
+from app.services.llm import AnalysisMode, analyze_game, get_week_responses
 
 router = APIRouter(prefix="/api/v1")
 
@@ -57,6 +57,7 @@ class LLMAnalyzeResponse(BaseModel):
     week: int
     analyzed: int
     skipped: int
+    queued: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -167,29 +168,17 @@ def _build_llm_game_payload(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/llm/analyze/{week}", response_model=LLMAnalyzeResponse)
-def analyze_week(
+def _run_week_analysis(
     week: int,
-    season: int = Query(..., description="NFL season year, e.g. 2025"),
-    force: bool = Query(False, description="Re-analyze games that already have responses"),
-    current_user: str = Depends(get_current_user),
-) -> LLMAnalyzeResponse:
-    """Trigger LLM analysis for every eligible game in a week.
-
-    Skips games that are locked AND completed (prediction of record is final —
-    asking the LLM after the game has no betting value). Re-runs are blocked
-    unless force=true.
-    """
+    season: int,
+    force: bool,
+    mode: AnalysisMode,
+) -> tuple[int, int]:
+    """Run LLM analysis for all eligible games in a week. Returns (analyzed, skipped)."""
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
     week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
-
-    if week_games.empty:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No games found for season {season} week {week}",
-        )
 
     analyzed = 0
     skipped = 0
@@ -211,7 +200,6 @@ def analyze_week(
         is_completed = (
             pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
         )
-        # Never re-analyze completed (final score recorded) games
         if is_completed:
             skipped += 1
             continue
@@ -220,15 +208,51 @@ def analyze_week(
             home, away, season, week, gameday, game_date, schedules,
             score_cache=score_cache,
         )
-        analyze_game(payload, force=force)
+        analyze_game(payload, force=force, mode=mode)
         analyzed += 1
 
+    return analyzed, skipped
+
+
+@router.post("/llm/analyze/{week}", response_model=LLMAnalyzeResponse, status_code=202)
+def analyze_week(
+    week: int,
+    background_tasks: BackgroundTasks,
+    season: int = Query(..., description="NFL season year, e.g. 2025"),
+    force: bool = Query(False, description="Re-analyze games that already have responses"),
+    mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
+    current_user: str = Depends(get_current_user),
+) -> LLMAnalyzeResponse:
+    """Queue LLM analysis for every eligible game in a week.
+
+    Returns 202 immediately; analysis runs in the background. Poll GET /llm/{week}
+    to retrieve results as they are written. Skips completed games (prediction of
+    record is final). Re-runs blocked unless force=true.
+    """
+    seasons = list(range(2015, season + 1))
+    schedules = load_schedules(seasons)
+    week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
+
+    if week_games.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No games found for season {season} week {week}",
+        )
+
+    eligible = sum(
+        1 for _, row in week_games.iterrows()
+        if not (pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")))
+    )
+
+    background_tasks.add_task(_run_week_analysis, week, season, force, mode)
+
     return LLMAnalyzeResponse(
-        status="ok",
+        status="queued",
         season=season,
         week=week,
-        analyzed=analyzed,
-        skipped=skipped,
+        analyzed=0,
+        skipped=len(week_games) - eligible,
+        queued=True,
     )
 
 
@@ -236,6 +260,7 @@ def analyze_week(
 def get_llm_responses(
     week: int,
     season: int = Query(..., description="NFL season year, e.g. 2025"),
+    mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
     current_user: Optional[str] = Depends(get_optional_user),
 ) -> LLMWeekResponse:
     """Return stored LLM responses for all games in a week.
@@ -244,7 +269,7 @@ def get_llm_responses(
     - Unauthenticated: verdict + explain only; flag is stripped.
     """
     authenticated = current_user is not None
-    raw = get_week_responses(season, week)
+    raw = get_week_responses(season, week, mode)
 
     games: list[LLMGameResponse] = []
     for entry in raw:
