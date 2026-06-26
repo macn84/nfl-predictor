@@ -331,7 +331,15 @@ def analyze_game(
     if not force and key in responses:
         return responses[key]
 
-    system_text, user_msg = _build_prompt(game, mode)
+    try:
+        system_text, user_msg = _build_prompt(game, mode)
+    except Exception:
+        logger.error(
+            "Prompt build failed for %s vs %s (mode=%s); using stub",
+            game.get("home_team"), game.get("away_team"), mode,
+            exc_info=True,
+        )
+        system_text, user_msg = "", ""
 
     if not system_text or not user_msg:
         logger.warning(

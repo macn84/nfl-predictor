@@ -9,9 +9,12 @@ GET  /api/v1/llm/{week}?season=           — fetch stored responses for a week
 Locked + completed games are never re-analyzed (prediction of record is final).
 """
 
+import logging
 import math
 from datetime import date
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, Response
@@ -205,12 +208,20 @@ def _run_week_analysis(
             skipped += 1
             continue
 
-        payload = _build_llm_game_payload(
-            home, away, season, week, gameday, game_date, schedules,
-            score_cache=score_cache,
-        )
-        analyze_game(payload, force=force, mode=mode)
-        analyzed += 1
+        try:
+            payload = _build_llm_game_payload(
+                home, away, season, week, gameday, game_date, schedules,
+                score_cache=score_cache,
+            )
+            analyze_game(payload, force=force, mode=mode)
+            analyzed += 1
+        except Exception:
+            logger.error(
+                "LLM analysis failed for %s vs %s week=%d season=%d mode=%s",
+                home, away, week, season, mode,
+                exc_info=True,
+            )
+            skipped += 1
 
     return analyzed, skipped
 
