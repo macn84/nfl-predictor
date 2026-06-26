@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Optional
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user, get_optional_user
@@ -258,6 +258,7 @@ def analyze_week(
 
 @router.get("/llm/{week}", response_model=LLMWeekResponse)
 def get_llm_responses(
+    response: Response,
     week: int = Path(..., ge=1, le=22, description="NFL week number"),
     season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
@@ -268,6 +269,8 @@ def get_llm_responses(
     - Authenticated: full response including flag.
     - Unauthenticated: verdict + explain only; flag is stripped.
     """
+    # Prevent Cloudflare/CDN from caching — results change as the background task writes them.
+    response.headers["Cache-Control"] = "no-store"
     authenticated = current_user is not None
     raw = get_week_responses(season, week, mode)
 
