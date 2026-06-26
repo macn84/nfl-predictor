@@ -210,7 +210,7 @@ def _call_anthropic_structured(
     try:
         response = client.messages.create(
             model=settings.anthropic_model,
-            max_tokens=120,
+            max_tokens=512,
             system=system_prompt,
             tools=[tool],
             tool_choice={"type": "tool", "name": tool["name"]},
