@@ -117,7 +117,8 @@ class Settings(BaseSettings):
     auth_disabled: bool = False            # True = skip all auth checks (local dev)
 
     # CORS — comma-separated list of allowed origins. Defaults cover local dev only.
-    # Override in .env for production: ALLOWED_ORIGINS=https://yourdomain.com
+    # Override in .env for production (JSON list format required by pydantic-settings):
+    # ALLOWED_ORIGINS=["https://yourdomain.com","http://localhost:5173","http://localhost:8000"]
     allowed_origins: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
     @property
