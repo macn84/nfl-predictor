@@ -57,10 +57,10 @@ class TestListWeeks:
             assert "week" in w
             assert w["game_count"] >= 1
 
-    def test_404_for_unknown_season(self, schedules):
+    def test_422_for_out_of_range_season(self, schedules):
         with patch("app.api.predictions.load_schedules", _mock_load_schedules(schedules)):
             resp = client.get("/api/v1/weeks", params={"season": 1900})
-        assert resp.status_code == 404
+        assert resp.status_code == 422
 
     def test_missing_season_returns_422(self):
         resp = client.get("/api/v1/weeks")
@@ -109,10 +109,10 @@ class TestGetWeekPredictions:
         confidence = resp.json()["games"][0]["confidence"]
         assert 50.0 <= confidence <= 100.0
 
-    def test_404_for_empty_week(self, schedules):
+    def test_422_for_out_of_range_week(self, schedules):
         with patch("app.api.predictions.load_schedules", _mock_load_schedules(schedules)):
             resp = client.get("/api/v1/predictions/99", params={"season": 2024})
-        assert resp.status_code == 404
+        assert resp.status_code == 422
 
     def test_missing_season_returns_422(self):
         resp = client.get("/api/v1/predictions/1")
@@ -200,10 +200,10 @@ class TestGetWeekCovers:
         confidence = resp.json()["games"][0]["cover_confidence"]
         assert 50.0 <= confidence <= 100.0
 
-    def test_404_for_empty_week(self, schedules):
+    def test_422_for_out_of_range_week(self, schedules):
         with patch("app.api.covers.load_schedules", _mock_load_schedules(schedules)):
             resp = client.get("/api/v1/covers/99", params={"season": 2024})
-        assert resp.status_code == 404
+        assert resp.status_code == 422
 
     def test_missing_season_returns_422(self):
         resp = client.get("/api/v1/covers/1")
@@ -328,10 +328,10 @@ class TestGetAccuracy:
         data = resp.json()
         assert data["correct"] <= data["total"]
 
-    def test_404_for_unknown_season(self, schedules):
+    def test_422_for_out_of_range_season(self, schedules):
         with patch("app.api.accuracy.load_schedules", _mock_load_schedules(schedules)):
             resp = client.get("/api/v1/accuracy", params={"season": 1900})
-        assert resp.status_code == 404
+        assert resp.status_code == 422
 
     def test_missing_season_returns_422(self):
         resp = client.get("/api/v1/accuracy")

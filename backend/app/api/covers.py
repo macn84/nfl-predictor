@@ -10,7 +10,7 @@ from datetime import date
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user, get_optional_user
@@ -100,9 +100,6 @@ def _cover_week_games(
             except ValueError:
                 pass
 
-        is_completed = (
-            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
-        )
         cache_key = f"{home}-{away}-{game_date}" if game_date else None
         in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
 
@@ -179,8 +176,8 @@ def _cover_week_games(
 
 @router.get("/covers/{week}", response_model=WeekCoversResponse)
 def get_week_covers(
-    week: int,
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
     current_user: Optional[str] = Depends(get_optional_user),
 ) -> WeekCoversResponse:
     """Return cover predictions for every game in a given week.
@@ -205,9 +202,9 @@ def get_week_covers(
 
 @router.get("/covers/{week}/{game_id}", response_model=GameCoverPrediction)
 def get_game_cover(
-    week: int,
-    game_id: str,
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    game_id: str = Path(..., pattern=r"^[a-z]{2,4}-[a-z]{2,4}$"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
     current_user: str = Depends(get_current_user),
 ) -> GameCoverPrediction:
     """Return the full cover prediction (with factor drill-down) for a single game.
@@ -234,9 +231,6 @@ def get_game_cover(
 
         cache_key = f"{home}-{away}-{game_date}" if game_date else None
         score_cache = load_score_cache()
-        is_completed = (
-            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
-        )
         in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
         locked = in_cache and (score_cache or {}).get(cache_key, {}).get("locked", False)
 

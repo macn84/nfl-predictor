@@ -392,7 +392,7 @@ class TestBettingLines:
         )
         monkeypatch.setattr(
             "app.prediction.factors.betting_lines._find_oddspapi_spread",
-            lambda data, home, away: (3.0, -110, -110),
+            lambda data, home, away: (3.0, -110, -110, -120, +100),
         )
         result = betting_lines.calculate("KC", "BUF")
         assert result.supporting_data["source"] == "oddspapi_live"
@@ -409,7 +409,7 @@ class TestBettingLines:
         )
         monkeypatch.setattr(
             "app.prediction.factors.betting_lines._find_live_spread",
-            lambda data, home, away: (-3.0, -115, -105),
+            lambda data, home, away: (-3.0, -115, -105, -130, +110),
         )
         result = betting_lines.calculate("KC", "BUF")
         assert result.supporting_data["source"] == "odds_api_live"

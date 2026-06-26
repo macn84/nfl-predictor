@@ -76,7 +76,7 @@ def _confidence_tier(confidence: float) -> str:
 
 @router.get("/accuracy", response_model=AccuracyResponse)
 def get_accuracy(
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
 ) -> AccuracyResponse:
     """Compute prediction accuracy for all completed games in a season.
 

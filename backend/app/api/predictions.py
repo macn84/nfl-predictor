@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user, get_optional_user
@@ -186,7 +186,9 @@ def _predict_week_games(
 
 
 @router.get("/weeks", response_model=WeeksResponse)
-def list_weeks(season: int = Query(..., description="NFL season year, e.g. 2024")) -> WeeksResponse:
+def list_weeks(
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+) -> WeeksResponse:
     """Return all weeks that have at least one scheduled game for the season.
 
     Each week includes a `completed` flag — True when every game in the week
@@ -213,8 +215,8 @@ def list_weeks(season: int = Query(..., description="NFL season year, e.g. 2024"
 
 @router.get("/predictions/{week}", response_model=WeekPredictionsResponse)
 def get_week_predictions(
-    week: int,
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
     current_user: Optional[str] = Depends(get_optional_user),
 ) -> WeekPredictionsResponse:
     """Return predictions for every game in a given week.
@@ -243,9 +245,9 @@ def get_week_predictions(
 
 @router.get("/predictions/{week}/{game_id}", response_model=GamePrediction)
 def get_game_prediction(
-    week: int,
-    game_id: str,
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    game_id: str = Path(..., pattern=r"^[a-z]{2,4}-[a-z]{2,4}$"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
     current_user: str = Depends(get_current_user),
 ) -> GamePrediction:
     """Return the full prediction (with factor drill-down) for a single game.

@@ -164,7 +164,8 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
         resp.raise_for_status()
         sports: list[dict] = resp.json()
     except Exception as exc:
-        logger.warning("OddspaPI /sports failed: %s", str(exc).replace(key, "***"))
+        msg = str(exc).replace(key, "***") if key else str(exc)
+        logger.warning("OddspaPI /sports failed: %s", msg)
         _oddspapi_discovery_failed_at = time.time()
         return None
 
@@ -191,7 +192,8 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
         resp.raise_for_status()
         tournaments: list[dict] = resp.json()
     except Exception as exc:
-        logger.warning("OddspaPI /tournaments failed: %s", str(exc).replace(key, "***"))
+        msg = str(exc).replace(key, "***") if key else str(exc)
+        logger.warning("OddspaPI /tournaments failed: %s", msg)
         _oddspapi_discovery_failed_at = time.time()
         return None
 
@@ -270,7 +272,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
             logger.warning(
                 "OddspaPI /odds-by-tournaments (%s) failed: %s",
                 bookmaker,
-                str(exc).replace(key, "***"),
+                (str(exc).replace(key, "***") if key else str(exc)),
             )
 
     # All bookmakers failed — cache an empty result so we don't retry per-game.
@@ -662,7 +664,7 @@ def _fetch_oddspapi_for_book(bookmaker: str) -> list[dict[str, Any]] | None:
         logger.warning(
             "OddspaPI multi-book (%s) failed: %s",
             bookmaker,
-            str(exc).replace(key, "***"),
+            (str(exc).replace(key, "***") if key else str(exc)),
         )
     return None
 

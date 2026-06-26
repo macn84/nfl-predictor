@@ -112,9 +112,13 @@ class Settings(BaseSettings):
     # Auth — set in backend/.env. Use AUTH_DISABLED=true for local dev.
     admin_username: str = ""
     admin_password_hash: str = ""          # bcrypt hash; generate with bcrypt.hashpw()
-    secret_key: str = "dev-insecure-key"   # override in production
-    access_token_expire_minutes: int = 10080  # 7 days
+    secret_key: str = ""                   # Required in production; no insecure fallback
+    access_token_expire_minutes: int = 60  # 1 hour default; override in .env
     auth_disabled: bool = False            # True = skip all auth checks (local dev)
+
+    # CORS — comma-separated list of allowed origins. Defaults cover local dev only.
+    # Override in .env for production: ALLOWED_ORIGINS=https://yourdomain.com
+    allowed_origins: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
     @property
     def weights(self) -> dict[str, float]:
@@ -149,3 +153,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if not settings.auth_disabled and not settings.secret_key:
+    raise RuntimeError(
+        "SECRET_KEY must be set in backend/.env when AUTH_DISABLED is false. "
+        "Generate one with: openssl rand -hex 32"
+    )

@@ -10,11 +10,11 @@ Locked + completed games are never re-analyzed (prediction of record is final).
 """
 
 import math
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Optional
 
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user, get_optional_user
@@ -216,9 +216,9 @@ def _run_week_analysis(
 
 @router.post("/llm/analyze/{week}", response_model=LLMAnalyzeResponse, status_code=202)
 def analyze_week(
-    week: int,
     background_tasks: BackgroundTasks,
-    season: int = Query(..., description="NFL season year, e.g. 2025"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     force: bool = Query(False, description="Re-analyze games that already have responses"),
     mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
     current_user: str = Depends(get_current_user),
@@ -258,8 +258,8 @@ def analyze_week(
 
 @router.get("/llm/{week}", response_model=LLMWeekResponse)
 def get_llm_responses(
-    week: int,
-    season: int = Query(..., description="NFL season year, e.g. 2025"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
     current_user: Optional[str] = Depends(get_optional_user),
 ) -> LLMWeekResponse:

@@ -9,6 +9,7 @@ When settings.auth_disabled is True (local dev), both dependencies return "dev"
 immediately with no token check.
 """
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -20,9 +21,13 @@ from app.config import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
+# In-memory revocation list keyed by jti. Cleared on server restart; acceptable
+# because the default token expiry is short (60 min).
+_revoked_jtis: set[str] = set()
+
 
 def create_access_token(data: dict) -> str:
-    """Sign and return a JWT access token.
+    """Sign and return a JWT access token with a unique jti claim.
 
     Args:
         data: Payload to encode. Typically {"sub": username}.
@@ -33,11 +38,32 @@ def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode["exp"] = expire
+    to_encode["jti"] = str(uuid.uuid4())
     return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
 
 
+def revoke_token(token: str) -> None:
+    """Add the token's jti to the revocation set.
+
+    Args:
+        token: Raw JWT string. Silently ignored if the token is invalid.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=["HS256"],
+            options={"verify_exp": False},
+        )
+        jti: str | None = payload.get("jti")
+        if jti:
+            _revoked_jtis.add(jti)
+    except JWTError:
+        pass
+
+
 def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
-    """Require a valid JWT. Raises 401 if missing or invalid.
+    """Require a valid, non-revoked JWT. Raises 401 if missing, invalid, or revoked.
 
     Returns the username from the token payload.
     Dev bypass: if settings.auth_disabled is True, returns "dev" unconditionally.
@@ -57,13 +83,16 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
         username: str | None = payload.get("sub")
         if username is None:
             raise credentials_exc
+        jti: str | None = payload.get("jti")
+        if jti and jti in _revoked_jtis:
+            raise credentials_exc
     except JWTError:
         raise credentials_exc
     return username
 
 
 def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
-    """Return username if a valid JWT is present, otherwise None.
+    """Return username if a valid, non-revoked JWT is present, otherwise None.
 
     Never raises — callers use the returned value to decide what to expose.
     Dev bypass: if settings.auth_disabled is True, returns "dev" unconditionally.
@@ -76,6 +105,9 @@ def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
         username: str | None = payload.get("sub")
+        jti: str | None = payload.get("jti")
+        if jti and jti in _revoked_jtis:
+            return None
         return username
     except JWTError:
         return None

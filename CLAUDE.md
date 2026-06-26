@@ -83,6 +83,15 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 - `make test` / `make lint` — pytest + ruff / vitest + eslint
 - `make setup-private` — apply private overlay (run from `nfl-predictor/`)
 
+## Known gotchas
+- FastAPI `Path(...)` gives a path param a Python default value. Injected non-default params
+  (`BackgroundTasks`, `Request`) must be declared *before* any `Path(...)` param.
+- Stale mocks in `tests/test_factors.py`: if a test fails with "not enough values to unpack",
+  check that mock tuple arity matches the current production return type.
+  `_find_oddspapi_spread` and `_find_live_spread` both return 5-tuples.
+- Pre-existing E501 violations in `betting_lines.py:152,176` and `pbp_stats.py` — do not fix
+  unless those lines are directly in scope.
+
 ## Code Conventions
 
 - Type hints on all signatures; Pydantic models for API schemas; Google-style docstrings

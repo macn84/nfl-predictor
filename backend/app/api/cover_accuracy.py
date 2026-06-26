@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/v1")
 
 @router.get("/accuracy/covers", response_model=AccuracyResponse)
 def get_cover_accuracy(
-    season: int = Query(..., description="NFL season year, e.g. 2024"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
 ) -> AccuracyResponse:
     """Compute cover prediction accuracy for all completed games in a season.
 

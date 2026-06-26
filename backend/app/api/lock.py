@@ -13,7 +13,7 @@ Both endpoints require authentication.
 import math
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
 from app.auth.deps import get_current_user
@@ -61,9 +61,9 @@ def _game_id(home_team: str, away_team: str) -> str:
 
 @router.post("/predictions/{week}/{game_id}/lock", response_model=LockResponse)
 def lock_game_prediction(
-    week: int,
-    game_id: str,
-    season: int = Query(..., description="NFL season year, e.g. 2025"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    game_id: str = Path(..., pattern=r"^[a-z]{2,4}-[a-z]{2,4}$"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     current_user: str = Depends(get_current_user),
 ) -> LockResponse:
     """Lock the current prediction for a single game as the prediction of record.
@@ -117,8 +117,8 @@ def lock_game_prediction(
 
 @router.post("/predictions/{week}/lock", response_model=list[LockResponse])
 def lock_week_predictions(
-    week: int,
-    season: int = Query(..., description="NFL season year, e.g. 2025"),
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     current_user: str = Depends(get_current_user),
 ) -> list[LockResponse]:
     """Lock predictions for all games in a week. CLI/scripting convenience endpoint.

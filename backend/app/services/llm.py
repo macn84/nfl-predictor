@@ -165,6 +165,15 @@ def _build_prompt_context(game: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _safe_format(template: str, ctx: dict[str, str]) -> str:
+    """Format template substituting values with curly braces stripped.
+
+    Prevents format-string injection if a game data field contains { or }.
+    """
+    safe = {k: str(v).replace("{", "(").replace("}", ")") for k, v in ctx.items()}
+    return template.format(**safe)
+
+
 def _build_prompt(game: dict[str, Any], mode: AnalysisMode) -> tuple[str, str]:
     """Return (system_prompt, user_message) for the given mode."""
     system_file, template_file = _PROMPT_FILES[mode]
@@ -172,7 +181,7 @@ def _build_prompt(game: dict[str, Any], mode: AnalysisMode) -> tuple[str, str]:
     template = _load_prompt(template_file)
     if not system or not template:
         return "", ""
-    return system, template.format(**_build_prompt_context(game))
+    return system, _safe_format(template, _build_prompt_context(game))
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +213,7 @@ def _call_anthropic_structured(
             max_tokens=120,
             system=system_prompt,
             tools=[tool],
-            tool_choice={"type": "tool", "name": "analyze_pick"},
+            tool_choice={"type": "tool", "name": tool["name"]},
             messages=[{"role": "user", "content": user_message}],
         )
     except Exception:
@@ -236,16 +245,49 @@ def _responses_path() -> Path:
     return Path(settings.cache_dir) / _RESPONSES_FILENAME
 
 
+def _migrate_legacy_keys(responses: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Rewrite pre-mode-suffix keys to the current {season}-{week}-{game_id}-{mode} format.
+
+    Old keys had format "{season}-{week}-{game_id}" with no trailing mode suffix.
+    All legacy entries are assumed to be cover-mode analysis (the only mode that
+    existed before the winner mode was added). The migrated file is persisted so
+    this migration runs only once.
+
+    Args:
+        responses: Raw dict loaded from llm_responses.json.
+
+    Returns:
+        Dict with all keys in the new format.
+    """
+    migrated: dict[str, dict[str, Any]] = {}
+    changed = False
+    for k, v in responses.items():
+        if k.endswith("-cover") or k.endswith("-winner"):
+            migrated[k] = v
+        else:
+            new_key = f"{k}-cover"
+            migrated[new_key] = {**v, "mode": "cover"}
+            changed = True
+            logger.info("Migrated legacy LLM response key %r → %r", k, new_key)
+    if changed:
+        try:
+            _responses_path().write_text(json.dumps(migrated, indent=2), encoding="utf-8")
+        except OSError:
+            logger.warning("Could not persist llm_responses.json key migration")
+    return migrated
+
+
 def load_llm_responses() -> dict[str, dict[str, Any]]:
     """Load all stored LLM responses. Returns empty dict if file missing."""
     path = _responses_path()
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         logger.warning("Failed to load llm_responses.json; starting fresh")
         return {}
+    return _migrate_legacy_keys(raw)
 
 
 def _save_llm_responses(responses: dict[str, dict[str, Any]]) -> None:
@@ -287,10 +329,7 @@ def analyze_game(
 
     responses = load_llm_responses()
     if not force and key in responses:
-        cached = responses[key]
-        # Treat previously-stored stubs as cache misses so real analysis runs
-        if cached.get("explain") != _STUB_EXPLAIN:
-            return cached
+        return responses[key]
 
     system_text, user_msg = _build_prompt(game, mode)
 
@@ -314,8 +353,13 @@ def analyze_game(
         "flag": result["flag"],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-    responses[key] = entry
-    _save_llm_responses(responses)
+
+    # Don't persist stubs — they indicate a missing API key or prompt files.
+    # Leaving them out of the cache lets the next analyze() call retry cleanly.
+    if result["explain"] != _STUB_EXPLAIN:
+        responses[key] = entry
+        _save_llm_responses(responses)
+
     return entry
 
 
