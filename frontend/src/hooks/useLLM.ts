@@ -17,14 +17,19 @@ interface UseLLMResult {
   /** Map from game_id → LLMGameResponse for fast lookup in GameCard */
   responses: Record<string, LLMGameResponse>
   analyzing: boolean
+  /** game_ids currently being analyzed individually */
+  analyzingGames: Set<string>
   error: string | null
   /** Trigger analysis for all eligible games in the week */
   analyze: (force?: boolean) => Promise<void>
+  /** Trigger analysis for a single game, updating only that card */
+  analyzeGame: (gameId: string, force?: boolean) => Promise<void>
 }
 
 export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover'): UseLLMResult {
   const [responses, setResponses] = useState<Record<string, LLMGameResponse>>({})
   const [analyzing, setAnalyzing] = useState(false)
+  const [analyzingGames, setAnalyzingGames] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const fetchedRef = useRef<string | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -135,6 +140,34 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
     [season, week, mode],
   )
 
+  const analyzeGame = useCallback(
+    async (gameId: string, force = false) => {
+      setAnalyzingGames(prev => new Set(prev).add(gameId))
+      try {
+        await triggerLLMAnalysis(season, week, force, mode, gameId)
+        // Poll until this specific game's response appears (or max ~30s).
+        for (let i = 0; i < 10; i++) {
+          await new Promise(resolve => setTimeout(resolve, 3000))
+          const data = await fetchLLMResponses(season, week, mode, true)
+          const entry = data.games.find(g => g.game_id === gameId)
+          if (entry?.explain && !entry.explain.startsWith(STUB_EXPLAIN)) {
+            setResponses(prev => ({ ...prev, [gameId]: entry }))
+            break
+          }
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Per-game analysis failed')
+      } finally {
+        setAnalyzingGames(prev => {
+          const next = new Set(prev)
+          next.delete(gameId)
+          return next
+        })
+      }
+    },
+    [season, week, mode],
+  )
+
   // On week/mode change or unmount: advance generation to invalidate any in-flight
   // poll closure (including fetches already awaited), and cancel the pending timer.
   useEffect(() => {
@@ -145,5 +178,5 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
     }
   }, [season, week, mode])
 
-  return { responses, analyzing, error, analyze }
+  return { responses, analyzing, analyzingGames, error, analyze, analyzeGame }
 }

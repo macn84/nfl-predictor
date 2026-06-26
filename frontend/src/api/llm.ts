@@ -21,9 +21,11 @@ export async function triggerLLMAnalysis(
   week: number,
   force = false,
   mode: AnalysisMode = 'cover',
+  gameId?: string,
 ): Promise<LLMAnalyzeResponse> {
   const params = new URLSearchParams({ season: String(season), mode })
   if (force) params.set('force', 'true')
+  if (gameId) params.set('game_id', gameId)
   return apiFetch<LLMAnalyzeResponse>(`/api/v1/llm/analyze/${week}?${params}`, {
     method: 'POST',
   })

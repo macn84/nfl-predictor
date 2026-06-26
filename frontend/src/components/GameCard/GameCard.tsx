@@ -38,6 +38,10 @@ interface GameCardProps {
   edgeThreshold?: number
   onLocked?: (gameId: string) => void
   llm?: LLMGameResponse | null
+  /** Callback to force re-analyze this specific game */
+  onAnalyzeGame?: (gameId: string, force: boolean) => Promise<void>
+  /** True while this game's per-card analysis is in flight */
+  analyzingGame?: boolean
 }
 
 function formatSpread(team: string, spread: number): string {
@@ -45,7 +49,7 @@ function formatSpread(team: string, spread: number): string {
   return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
 }
 
-export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: GameCardProps) {
+export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onAnalyzeGame, analyzingGame }: GameCardProps) {
   const { isAuthenticated } = useAuth()
   const { home_team, away_team, week, game_id, gameday } = game
   const [locked, setLocked] = useState(game.locked)
@@ -184,18 +188,34 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm }: G
                 : 'Click to drill down · AI analysis pending'
               : 'AI summary coming soon…'}
           </p>
-          {isAuthenticated && isUpcoming && !locked && (
-            <button
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setConfirmOpen(true)
-              }}
-              className="text-xs font-semibold text-app-muted hover:text-app-green border border-app-border hover:border-app-green rounded px-2 py-0.5 transition-colors uppercase tracking-wider"
-            >
-              Lock pick
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {isAuthenticated && onAnalyzeGame && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  void onAnalyzeGame(game_id, !!llm)
+                }}
+                disabled={analyzingGame}
+                title={llm ? 'Force re-analyze this game' : 'Analyze this game with AI'}
+                className="text-xs font-mono text-app-muted hover:text-app-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {analyzingGame ? '…' : '↺ AI'}
+              </button>
+            )}
+            {isAuthenticated && isUpcoming && !locked && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setConfirmOpen(true)
+                }}
+                className="text-xs font-semibold text-app-muted hover:text-app-green border border-app-border hover:border-app-green rounded px-2 py-0.5 transition-colors uppercase tracking-wider"
+              >
+                Lock pick
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>

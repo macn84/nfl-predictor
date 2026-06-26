@@ -65,7 +65,7 @@ export function WeeklyDashboard() {
     error: coversError,
   } = useCovers(season, selectedWeek)
 
-  const { responses: llmResponses, analyzing, error: llmError, analyze } = useLLM(
+  const { responses: llmResponses, analyzing, analyzingGames, error: llmError, analyze, analyzeGame } = useLLM(
     season,
     selectedWeek,
     mode === 'predictions' ? 'winner' : 'cover',
@@ -214,6 +214,8 @@ export function WeeklyDashboard() {
                   mode="predictions"
                   season={season}
                   llm={llmResponses[game.game_id] ?? null}
+                  onAnalyzeGame={analyzeGame}
+                  analyzingGame={analyzingGames.has(game.game_id)}
                 />
               ))}
             </div>
@@ -227,6 +229,8 @@ export function WeeklyDashboard() {
                   season={season}
                   edgeThreshold={config.cover_edge_threshold}
                   llm={llmResponses[game.game_id] ?? null}
+                  onAnalyzeGame={analyzeGame}
+                  analyzingGame={analyzingGames.has(game.game_id)}
                 />
               ))}
             </div>

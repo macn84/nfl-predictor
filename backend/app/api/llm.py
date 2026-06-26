@@ -177,8 +177,13 @@ def _run_week_analysis(
     season: int,
     force: bool,
     mode: AnalysisMode,
+    game_id: str | None = None,
 ) -> tuple[int, int]:
-    """Run LLM analysis for all eligible games in a week. Returns (analyzed, skipped)."""
+    """Run LLM analysis for eligible games in a week. Returns (analyzed, skipped).
+
+    Args:
+        game_id: When set, only analyze the single game with this ID.
+    """
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
     score_cache = load_score_cache()
@@ -190,6 +195,11 @@ def _run_week_analysis(
     for _, row in week_games.iterrows():
         home = str(row["home_team"])
         away = str(row["away_team"])
+
+        # Filter to a single game when game_id is provided.
+        if game_id and _game_id(home, away) != game_id:
+            continue
+
         gameday_raw = row.get("gameday", "")
         is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
         gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
@@ -233,13 +243,16 @@ def analyze_week(
     season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2025"),
     force: bool = Query(False, description="Re-analyze games that already have responses"),
     mode: AnalysisMode = Query("cover", description="Analysis mode: cover or winner"),
+    game_id: str | None = Query(None, description="Analyze a single game by ID; omit for full week"),
     current_user: str = Depends(get_current_user),
 ) -> LLMAnalyzeResponse:
-    """Queue LLM analysis for every eligible game in a week.
+    """Queue LLM analysis for eligible games in a week.
 
     Returns 202 immediately; analysis runs in the background. Poll GET /llm/{week}
     to retrieve results as they are written. Skips completed games (prediction of
     record is final). Re-runs blocked unless force=true.
+
+    Provide game_id to analyze a single game instead of the full week.
     """
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
@@ -254,9 +267,10 @@ def analyze_week(
     eligible = sum(
         1 for _, row in week_games.iterrows()
         if not (pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")))
+        and (game_id is None or _game_id(str(row["home_team"]), str(row["away_team"])) == game_id)
     )
 
-    background_tasks.add_task(_run_week_analysis, week, season, force, mode)
+    background_tasks.add_task(_run_week_analysis, week, season, force, mode, game_id)
 
     return LLMAnalyzeResponse(
         status="queued",
