@@ -40,6 +40,7 @@ export function WeeklyDashboard() {
   const [sortBy, setSortBy] = useState<SortOption>('confidence')
   const [mode, setMode] = useState<PredictionMode>('predictions')
   const [edgeOnly, setEdgeOnly] = useState(false)
+  const [forceAnalysis, setForceAnalysis] = useState(false)
 
   const { data: weeksData, loading: weeksLoading, error: weeksError } = useWeeks(season)
 
@@ -145,14 +146,25 @@ export function WeeklyDashboard() {
             </button>
           </div>
           {isAuthenticated && (
-            <button
-              onClick={() => void analyze()}
-              disabled={analyzing}
-              title="Ask the AI to explain each pick and flag anything the model may have missed"
-              className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {analyzing ? 'Analyzing…' : 'Ask AI'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void analyze(forceAnalysis)}
+                disabled={analyzing}
+                title="Ask the AI to explain each pick and flag anything the model may have missed"
+                className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {analyzing ? 'Analyzing…' : 'Ask AI'}
+              </button>
+              <label className="flex items-center gap-1 text-xs font-mono text-app-muted cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={forceAnalysis}
+                  onChange={e => setForceAnalysis(e.target.checked)}
+                  className="accent-app-gold"
+                />
+                force
+              </label>
+            </div>
           )}
           {llmError && (
             <span className="text-xs text-app-red font-mono">{llmError}</span>

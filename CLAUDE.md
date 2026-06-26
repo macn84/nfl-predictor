@@ -91,6 +91,17 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
   `_find_oddspapi_spread` and `_find_live_spread` both return 5-tuples.
 - Pre-existing E501 violations in `betting_lines.py:152,176` and `pbp_stats.py` — do not fix
   unless those lines are directly in scope.
+- **LLM background task + Cloudflare**: GET `/api/v1/llm/{week}` must have `Cache-Control: no-store`
+  and poll requests must use `?_t={Date.now()}` to bust the CDN. Without this, Cloudflare serves
+  the initial empty response for all polls.
+- **LLM `max_tokens`**: Set to 512. Do not lower it — 120 caused silent stubs because the
+  tool_use JSON (verdict + explain + flag) was truncated. Diagnosis: API returns 200 OK but
+  `tool_block is None` → stub returned → not persisted → looks like 0 results.
+- **LLM Python logging not in journalctl**: `app.services.llm` logger output is not captured
+  by uvicorn's stdout. To debug background task errors, run `_run_week_analysis()` directly
+  in a script with `logging.basicConfig(level=logging.DEBUG)`.
+- **TODO**: Remove debug `console.log` statements from `frontend/src/hooks/useLLM.ts` once
+  the LLM polling is confirmed stable across multiple weeks.
 
 ## Code Conventions
 
