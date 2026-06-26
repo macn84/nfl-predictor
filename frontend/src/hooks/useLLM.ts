@@ -6,8 +6,12 @@ import type { LLMGameResponse } from '../api/types'
 const STUB_EXPLAIN = 'Model analysis not available'
 const POLL_INTERVAL_MS = 4000
 const POLL_MAX_ATTEMPTS = 30
-/** After this many attempts with zero games returned, treat the week as having no eligible games. */
-const POLL_EMPTY_THRESHOLD = 3
+/**
+ * After this many consecutive attempts with zero games returned, treat the week as having
+ * no eligible games. Must be large enough to survive the background task's full runtime
+ * (~50s for a 16-game week at 3-4s per API call) plus CDN warm-up.
+ */
+const POLL_EMPTY_THRESHOLD = 20
 
 interface UseLLMResult {
   /** Map from game_id → LLMGameResponse for fast lookup in GameCard */
@@ -76,7 +80,9 @@ export function useLLM(season: number, week: number, mode: AnalysisMode = 'cover
           attempts++
           console.log('[useLLM] poll() attempt=%d generation=%d', attempts, generation)
           try {
-            const data = await fetchLLMResponses(season, week, mode)
+            // bustCache=true adds ?_t=<timestamp> to each poll URL so Cloudflare
+            // edge cache cannot serve a stale empty response from a prior poll.
+            const data = await fetchLLMResponses(season, week, mode, true)
             // Re-check after the async fetch — generation may have advanced.
             if (generationRef.current !== generation) {
               console.log('[useLLM] poll() bailed after fetch — generation mismatch (cur=%d expected=%d)', generationRef.current, generation)
