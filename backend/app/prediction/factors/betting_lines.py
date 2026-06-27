@@ -86,6 +86,10 @@ _DISCOVERY_RETRY_SECONDS = 3600              # wait 1 hour before retrying after
 
 _oddspapi_cache: list[dict[str, Any]] | None = None
 _oddspapi_cache_ts: float = 0.0
+# Set to a future timestamp when all bookmakers fail so we back off before retrying.
+# Distinct from _oddspapi_cache so a genuine empty (offseason) and an error don't look the same.
+_oddspapi_error_until: float = 0.0
+_ERROR_RETRY_SECONDS = 30 * 60   # 30 minutes between retries after a quota/network failure
 
 # ---------------------------------------------------------------------------
 # The Odds API — fallback live source
@@ -231,8 +235,19 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
 # ---------------------------------------------------------------------------
 
 def _fetch_oddspapi() -> list[dict[str, Any]] | None:
-    """Fetch live NFL odds from OddspaPI with 6-hour in-memory cache."""
-    global _oddspapi_cache, _oddspapi_cache_ts
+    """Fetch live NFL odds from OddspaPI with 6-hour in-memory cache.
+
+    Returns the cached fixture list on success (may be empty in the offseason).
+    Returns None when OddspaPI is unavailable (rate limited, quota exceeded, network
+    error) so callers can fall back to The Odds API.  Distinguishes genuine empty
+    responses (offseason, no lines posted) from errors via a separate backoff timer.
+    """
+    global _oddspapi_cache, _oddspapi_cache_ts, _oddspapi_error_until
+
+    # If we recently hit an error, honour the backoff window before retrying.
+    if _oddspapi_error_until and time.time() < _oddspapi_error_until:
+        logger.debug("OddspaPI: in error backoff, skipping (retry at %s)", _oddspapi_error_until)
+        return None
 
     if _oddspapi_cache is not None and (time.time() - _oddspapi_cache_ts) < _CACHE_TTL_SECONDS:
         return _oddspapi_cache
@@ -263,6 +278,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
             # re-call the API for every game in the same request.
             _oddspapi_cache = data
             _oddspapi_cache_ts = time.time()
+            _oddspapi_error_until = 0.0  # clear any previous error backoff
             if data:
                 logger.info("OddspaPI: fetched %d fixtures via %s", len(data), bookmaker)
             else:
@@ -275,9 +291,15 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
                 (str(exc).replace(key, "***") if key else str(exc)),
             )
 
-    # All bookmakers failed — cache an empty result so we don't retry per-game.
-    _oddspapi_cache = []
-    _oddspapi_cache_ts = time.time()
+    # All bookmakers failed (rate limit, quota, network). Back off 30 min before
+    # retrying so we don't hammer a limited API.  Do NOT overwrite _oddspapi_cache
+    # here — if a previous successful fetch is still in cache it stays valid; if not,
+    # callers get None and fall through to The Odds API.
+    _oddspapi_error_until = time.time() + _ERROR_RETRY_SECONDS
+    logger.warning(
+        "OddspaPI: all bookmakers failed — falling back to The Odds API for %d min",
+        _ERROR_RETRY_SECONDS // 60,
+    )
     return None
 
 
@@ -563,32 +585,35 @@ def calculate(
     # Attempt 1: OddspaPI (primary)
     if settings.oddspapi_api_key:
         oddspapi_data = _fetch_oddspapi()
-        if oddspapi_data is not None:
-            if len(oddspapi_data) == 0:
-                logger.info("OddspaPI: no fixtures (offseason?), trying fallback")
-            else:
-                live = _find_oddspapi_spread(oddspapi_data, home_team, away_team)
-                if live is not None:
-                    spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
-                    score = _spread_to_score(spread)
-                    return FactorResult(
-                        name="betting_lines",
-                        score=score,
-                        weight=weight,
-                        contribution=score * weight,
-                        supporting_data={
-                            "home_team_spread": spread,
-                            "home_juice": home_juice,
-                            "away_juice": away_juice,
-                            "home_ml_juice": home_ml_juice,
-                            "away_ml_juice": away_ml_juice,
-                            "source": "oddspapi_live",
-                            "game_date": str(game_date) if game_date else None,
-                        },
-                    )
-                logger.info(
-                    "OddspaPI: %s vs %s not found, trying fallback", home_team, away_team
+        if oddspapi_data is None:
+            # API unavailable (rate limited, quota exceeded, network error).
+            # _fetch_oddspapi already logged the reason; fall through to Odds API.
+            logger.info("OddspaPI: unavailable, falling back to The Odds API")
+        elif len(oddspapi_data) == 0:
+            logger.info("OddspaPI: no fixtures posted yet (offseason?), trying fallback")
+        else:
+            live = _find_oddspapi_spread(oddspapi_data, home_team, away_team)
+            if live is not None:
+                spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
+                score = _spread_to_score(spread)
+                return FactorResult(
+                    name="betting_lines",
+                    score=score,
+                    weight=weight,
+                    contribution=score * weight,
+                    supporting_data={
+                        "home_team_spread": spread,
+                        "home_juice": home_juice,
+                        "away_juice": away_juice,
+                        "home_ml_juice": home_ml_juice,
+                        "away_ml_juice": away_ml_juice,
+                        "source": "oddspapi_live",
+                        "game_date": str(game_date) if game_date else None,
+                    },
                 )
+            logger.info(
+                "OddspaPI: %s vs %s not found, trying fallback", home_team, away_team
+            )
 
     # Attempt 2: The Odds API (fallback)
     if settings.odds_api_key:
