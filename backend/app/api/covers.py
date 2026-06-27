@@ -109,7 +109,11 @@ def _cover_week_games(
         if in_cache and score_cache is not None and cache_key is not None:
             cached = score_cache[cache_key]
             weighted_sum, _ = apply_weights(cached, settings.cover_weights)
-            cached_spread: float | None = cached.get("spread")
+            # Prefer live market spread; fall back to historical closing line.
+            # For upcoming games, "spread" (historical CSV) is None but "live_spread"
+            # holds the current bookmaker line from OddspaPI or The Odds API.
+            _live = cached.get("live_spread")
+            cached_spread: float | None = _live if _live is not None else cached.get("spread")
             predicted_margin: float | None = (
                 (COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT)
                 if cached_spread is not None
