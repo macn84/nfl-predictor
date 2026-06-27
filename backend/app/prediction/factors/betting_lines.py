@@ -506,9 +506,11 @@ def _find_live_spread(
         (nflverse convention). Prices are American odds (e.g. -110). ML prices may be None.
     """
     for game in odds_data:
-        h = game.get("home_team", "").upper()
-        a = game.get("away_team", "").upper()
-        if home_team.upper() not in h and away_team.upper() not in a:
+        h = game.get("home_team", "")
+        a = game.get("away_team", "")
+        # The Odds API returns full names ("Kansas City Chiefs"), not abbreviations.
+        # Use _team_name_matches() which maps abbrev → unique nickname for reliable matching.
+        if not (_team_name_matches(h, home_team) and _team_name_matches(a, away_team)):
             continue
         home_point: float | None = None
         home_price: int = -110
@@ -520,19 +522,19 @@ def _find_live_spread(
                 key = market.get("key")
                 if key == "spreads" and home_point is None:
                     for outcome in market.get("outcomes", []):
-                        name_upper = outcome.get("name", "").upper()
-                        if home_team.upper() in name_upper:
+                        name = outcome.get("name", "")
+                        if _team_name_matches(name, home_team):
                             # Odds API: negative = home favoured → negate for nflverse
                             home_point = -float(outcome["point"])
                             home_price = int(outcome.get("price", -110))
-                        elif away_team.upper() in name_upper:
+                        elif _team_name_matches(name, away_team):
                             away_price = int(outcome.get("price", -110))
                 elif key == "h2h" and home_ml is None:
                     for outcome in market.get("outcomes", []):
-                        name_upper = outcome.get("name", "").upper()
-                        if home_team.upper() in name_upper:
+                        name = outcome.get("name", "")
+                        if _team_name_matches(name, home_team):
                             home_ml = int(outcome.get("price", -110))
-                        elif away_team.upper() in name_upper:
+                        elif _team_name_matches(name, away_team):
                             away_ml = int(outcome.get("price", -110))
             if home_point is not None and home_ml is not None:
                 break
