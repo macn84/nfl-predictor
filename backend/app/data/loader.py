@@ -72,11 +72,16 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
         df = pd.read_csv(path, low_memory=False)
         _weekly_stats_memory[name] = df
         return df
-    try:
-        df = nfl.load_player_stats(seasons).to_pandas()
-    except Exception:
-        fallback = [s for s in seasons if s < max(seasons)]
-        df = nfl.load_player_stats(fallback).to_pandas() if fallback else pd.DataFrame()
+    remaining = sorted(seasons)
+    df = pd.DataFrame()
+    while remaining:
+        try:
+            df = nfl.load_player_stats(remaining).to_pandas()
+            break
+        except Exception:
+            if len(remaining) <= 1:
+                break
+            remaining = remaining[:-1]
     df.to_csv(path, index=False)
     _weekly_stats_memory[name] = df
     return df
@@ -102,11 +107,19 @@ def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.
         df = pd.read_csv(path, low_memory=False)
         _team_game_stats_memory[name] = df
         return df
-    try:
-        df = nfl.load_team_stats(seasons, summary_level="week").to_pandas()
-    except Exception:
-        fallback = [s for s in seasons if s < max(seasons)]
-        df = nfl.load_team_stats(fallback, summary_level="week").to_pandas() if fallback else pd.DataFrame()
+    # In the offseason the latest 1-2 season files don't exist yet on nflverse
+    # (e.g. stats_team_week_2026.parquet returns 404 until games are played).
+    # Keep dropping the newest season until the download succeeds.
+    remaining = sorted(seasons)
+    df = pd.DataFrame()
+    while remaining:
+        try:
+            df = nfl.load_team_stats(remaining, summary_level="week").to_pandas()
+            break
+        except Exception:
+            if len(remaining) <= 1:
+                break
+            remaining = remaining[:-1]
     df.to_csv(path, index=False)
     _team_game_stats_memory[name] = df
     return df
