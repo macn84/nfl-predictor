@@ -202,25 +202,34 @@ def _discover_oddspapi_nfl_ids() -> tuple[int, int] | None:
         return None
 
     tournament_id: int | None = None
-    # Prefer a regular-season tournament that has upcoming fixtures.
+    # Look for the NFL regular-season tournament specifically (slug="nfl").
+    # Use futureFixtures rather than upcomingFixtures so we find it in the
+    # offseason when games are scheduled but not yet imminent.
     for t in tournaments:
-        name = t.get("tournamentName", "").lower()
         slug = t.get("tournamentSlug", "").lower()
-        is_regular = "pre" not in name and "pre" not in slug and "super bowl" not in name
-        if is_regular and t.get("upcomingFixtures", 0) > 0:
+        name = t.get("tournamentName", "").lower()
+        has_fixtures = (
+            t.get("upcomingFixtures", 0) > 0 or t.get("futureFixtures", 0) > 0
+        )
+        is_nfl_regular = slug == "nfl" or (name == "nfl" and "pre" not in slug)
+        if is_nfl_regular and has_fixtures:
             tournament_id = int(t["tournamentId"])
             break
 
     if tournament_id is None:
-        # Fallback: any tournament with upcoming games
+        # Broader fallback: any tournament whose slug starts with "nfl" and isn't preseason.
         for t in tournaments:
-            if t.get("upcomingFixtures", 0) > 0:
+            slug = t.get("tournamentSlug", "").lower()
+            has_fixtures = (
+                t.get("upcomingFixtures", 0) > 0 or t.get("futureFixtures", 0) > 0
+            )
+            if slug.startswith("nfl") and "pre" not in slug and has_fixtures:
                 tournament_id = int(t["tournamentId"])
                 break
 
     if tournament_id is None:
         slugs = [t.get("tournamentSlug") for t in tournaments]
-        logger.warning("OddspaPI: no upcoming NFL tournament found among: %s", slugs)
+        logger.warning("OddspaPI: no NFL regular-season tournament found among: %s", slugs)
         _oddspapi_discovery_failed_at = time.time()
         return None
 
