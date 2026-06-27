@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { GameCoverPrediction, GamePrediction } from '../../api/types'
 import { brand } from '../../branding/config'
@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
 import { useLLM } from '../../hooks/useLLM'
+import { refreshOdds } from '../../api/predictions'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
@@ -41,6 +42,20 @@ export function WeeklyDashboard() {
   const [mode, setMode] = useState<PredictionMode>('predictions')
   const [edgeOnly, setEdgeOnly] = useState(false)
   const [forceAnalysis, setForceAnalysis] = useState(false)
+  const [oddsRefreshing, setOddsRefreshing] = useState(false)
+  const [oddsRefreshError, setOddsRefreshError] = useState<string | null>(null)
+
+  const handleRefreshOdds = useCallback(async () => {
+    setOddsRefreshing(true)
+    setOddsRefreshError(null)
+    try {
+      await refreshOdds()
+    } catch (e) {
+      setOddsRefreshError(e instanceof Error ? e.message : 'Odds refresh failed')
+    } finally {
+      setOddsRefreshing(false)
+    }
+  }, [])
 
   const { data: weeksData, loading: weeksLoading, error: weeksError } = useWeeks(season)
 
@@ -164,10 +179,22 @@ export function WeeklyDashboard() {
                 />
                 force
               </label>
+              <div className="w-px h-4 bg-app-border" />
+              <button
+                onClick={() => void handleRefreshOdds()}
+                disabled={oddsRefreshing}
+                title="Bust the live odds cache so the next prediction call fetches fresh lines from the API"
+                className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-green disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {oddsRefreshing ? 'Refreshing…' : 'Refresh Odds'}
+              </button>
             </div>
           )}
           {llmError && (
             <span className="text-xs text-app-red font-mono">{llmError}</span>
+          )}
+          {oddsRefreshError && (
+            <span className="text-xs text-app-red font-mono">{oddsRefreshError}</span>
           )}
           <SortFilterBar
             sortBy={sortBy}

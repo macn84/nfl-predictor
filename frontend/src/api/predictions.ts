@@ -32,6 +32,10 @@ export async function triggerRefresh(season: number): Promise<RefreshResponse> {
   })
 }
 
+export async function refreshOdds(): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>('/api/v1/odds/refresh', { method: 'POST' })
+}
+
 export async function fetchAccuracy(season: number): Promise<AccuracyResponse> {
   return apiFetch<AccuracyResponse>(`/api/v1/accuracy?season=${season}`)
 }

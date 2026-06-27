@@ -4,9 +4,9 @@ betting_lines.py - Betting lines factor.
 For historical games (2015-2025): reads closing spreads from nflverse
 CSV files in data/spreads/. No API key or quota required.
 
-For current/upcoming games: fetches live spreads from OddspaPI (primary)
-or The Odds API (fallback). Tries OddspaPI first; falls back to The Odds API
-if OddspaPI fails or returns no data. Skips gracefully if neither key is set.
+For current/upcoming games: fetches live spreads from The Odds API (primary)
+or OddspaPI (fallback). Tries The Odds API first; falls back to OddspaPI
+if The Odds API fails or returns no data. Skips gracefully if neither key is set.
 
 Spread sign convention (matches nflverse and nflreadpy):
     Positive value → home team is giving points → home team is FAVOURED.
@@ -57,7 +57,7 @@ class LiveOddsData:
 logger = logging.getLogger(__name__)
 
 _MAX_SPREAD = 14.0
-_CACHE_TTL_SECONDS = 6 * 3600
+_CACHE_TTL_SECONDS = 30 * 60  # 30 minutes — lines move; don't serve stale for 6h
 
 # ---------------------------------------------------------------------------
 # OddspaPI — primary live source
@@ -589,42 +589,9 @@ def calculate(
             },
         )
 
-    # --- Live: try OddspaPI first, fall back to The Odds API ---
+    # --- Live: try The Odds API first, fall back to OddspaPI ---
 
-    # Attempt 1: OddspaPI (primary)
-    if settings.oddspapi_api_key:
-        oddspapi_data = _fetch_oddspapi()
-        if oddspapi_data is None:
-            # API unavailable (rate limited, quota exceeded, network error).
-            # _fetch_oddspapi already logged the reason; fall through to Odds API.
-            logger.info("OddspaPI: unavailable, falling back to The Odds API")
-        elif len(oddspapi_data) == 0:
-            logger.info("OddspaPI: no fixtures posted yet (offseason?), trying fallback")
-        else:
-            live = _find_oddspapi_spread(oddspapi_data, home_team, away_team)
-            if live is not None:
-                spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
-                score = _spread_to_score(spread)
-                return FactorResult(
-                    name="betting_lines",
-                    score=score,
-                    weight=weight,
-                    contribution=score * weight,
-                    supporting_data={
-                        "home_team_spread": spread,
-                        "home_juice": home_juice,
-                        "away_juice": away_juice,
-                        "home_ml_juice": home_ml_juice,
-                        "away_ml_juice": away_ml_juice,
-                        "source": "oddspapi_live",
-                        "game_date": str(game_date) if game_date else None,
-                    },
-                )
-            logger.info(
-                "OddspaPI: %s vs %s not found, trying fallback", home_team, away_team
-            )
-
-    # Attempt 2: The Odds API (fallback)
+    # Attempt 1: The Odds API (primary)
     if settings.odds_api_key:
         odds_data = _fetch_odds()
         if odds_data is not None and len(odds_data) > 0:
@@ -644,6 +611,39 @@ def calculate(
                         "home_ml_juice": home_ml_juice,
                         "away_ml_juice": away_ml_juice,
                         "source": "odds_api_live",
+                        "game_date": str(game_date) if game_date else None,
+                    },
+                )
+            logger.info(
+                "The Odds API: %s vs %s not found, trying fallback", home_team, away_team
+            )
+        else:
+            logger.info("The Odds API: unavailable or no games posted, falling back to OddspaPI")
+
+    # Attempt 2: OddspaPI (fallback)
+    if settings.oddspapi_api_key:
+        oddspapi_data = _fetch_oddspapi()
+        if oddspapi_data is None:
+            logger.info("OddspaPI: unavailable (rate limited / quota / network error)")
+        elif len(oddspapi_data) == 0:
+            logger.info("OddspaPI: no fixtures posted yet (offseason?)")
+        else:
+            live = _find_oddspapi_spread(oddspapi_data, home_team, away_team)
+            if live is not None:
+                spread, home_juice, away_juice, home_ml_juice, away_ml_juice = live
+                score = _spread_to_score(spread)
+                return FactorResult(
+                    name="betting_lines",
+                    score=score,
+                    weight=weight,
+                    contribution=score * weight,
+                    supporting_data={
+                        "home_team_spread": spread,
+                        "home_juice": home_juice,
+                        "away_juice": away_juice,
+                        "home_ml_juice": home_ml_juice,
+                        "away_ml_juice": away_ml_juice,
+                        "source": "oddspapi_live",
                         "game_date": str(game_date) if game_date else None,
                     },
                 )
