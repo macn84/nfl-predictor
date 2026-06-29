@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AccuracyResponse, FrontendConfig, GamePrediction, RefreshResponse, SchedulerRunResponse, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
+import type { AccuracyResponse, FrontendConfig, GamePrediction, RefreshResponse, SchedulerJobStatus, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
 
 export async function fetchWeeks(season: number): Promise<WeeksResponse> {
   return apiFetch<WeeksResponse>(`/api/v1/weeks?season=${season}`)
@@ -33,11 +33,19 @@ export async function triggerRefresh(season: number): Promise<RefreshResponse> {
 }
 
 /**
- * Trigger the full scheduler job: pull fresh nflverse data, fetch new odds/weather,
- * and re-predict all current-week upcoming games. Falls back for missed cron runs.
+ * Launch the scheduler job in the background and return immediately (202).
+ * Poll fetchSchedulerStatus() until status is "done" or "error".
  */
-export async function runScheduler(): Promise<SchedulerRunResponse> {
-  return apiFetch<SchedulerRunResponse>('/api/v1/scheduler/run-now', { method: 'POST' })
+export async function runScheduler(): Promise<SchedulerJobStatus> {
+  return apiFetch<SchedulerJobStatus>('/api/v1/scheduler/run-now', { method: 'POST' })
+}
+
+/**
+ * Poll the current scheduler job state. Cache-busted with ?_t= to bypass
+ * Cloudflare edge caching so each poll reflects the actual job state.
+ */
+export async function fetchSchedulerStatus(): Promise<SchedulerJobStatus> {
+  return apiFetch<SchedulerJobStatus>(`/api/v1/scheduler/status?_t=${Date.now()}`)
 }
 
 /**

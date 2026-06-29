@@ -72,13 +72,14 @@ export interface RefreshResponse {
   games_cached: number
 }
 
-export interface SchedulerRunResponse {
-  status: string
-  season: number
+export interface SchedulerJobStatus {
+  status: 'idle' | 'running' | 'done' | 'error'
+  season: number | null
   week: number | null
-  games_newly_cached: number
-  games_skipped: number
-  elapsed_seconds: number
+  games_newly_cached: number | null
+  games_skipped: number | null
+  elapsed_seconds: number | null
+  error: string | null
 }
 
 export interface WeekAccuracy {

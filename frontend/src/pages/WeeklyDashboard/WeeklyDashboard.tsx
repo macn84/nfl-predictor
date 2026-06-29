@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { GameCoverPrediction, GamePrediction } from '../../api/types'
 import { brand } from '../../branding/config'
@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
 import { useLLM } from '../../hooks/useLLM'
-import { runScheduler, refreshGame } from '../../api/predictions'
+import { runScheduler, refreshGame, fetchSchedulerStatus } from '../../api/predictions'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
@@ -53,17 +53,61 @@ export function WeeklyDashboard() {
   // Per-game refresh state — tracks which game_id is currently refreshing.
   const [refreshingGameId, setRefreshingGameId] = useState<string | null>(null)
 
+  // Interval handle for scheduler status polling — cleared on done/error/unmount.
+  const schedulerPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Clear any in-flight poll interval when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (schedulerPollRef.current !== null) clearInterval(schedulerPollRef.current)
+    }
+  }, [])
+
   const handleRefreshWeek = useCallback(async () => {
     setWeekRefreshing(true)
     setWeekRefreshError(null)
+
     try {
+      // POST returns 202 immediately — job is now running in the background.
       await runScheduler()
-      setRefreshKey((k) => k + 1)
     } catch (e) {
       setWeekRefreshError(e instanceof Error ? e.message : 'Refresh failed')
-    } finally {
       setWeekRefreshing(false)
+      return
     }
+
+    // Poll GET /scheduler/status every 3s until done or error.
+    // MAX_POLLS × 3000ms = ~150s maximum wait before giving up.
+    const MAX_POLLS = 50
+    let attempts = 0
+    schedulerPollRef.current = setInterval(() => {
+      attempts++
+      fetchSchedulerStatus()
+        .then((s) => {
+          if (s.status === 'done') {
+            clearInterval(schedulerPollRef.current!)
+            schedulerPollRef.current = null
+            setWeekRefreshing(false)
+            setRefreshKey((k) => k + 1)
+          } else if (s.status === 'error') {
+            clearInterval(schedulerPollRef.current!)
+            schedulerPollRef.current = null
+            setWeekRefreshing(false)
+            setWeekRefreshError(s.error ?? 'Refresh failed')
+          } else if (attempts >= MAX_POLLS) {
+            clearInterval(schedulerPollRef.current!)
+            schedulerPollRef.current = null
+            setWeekRefreshing(false)
+            setWeekRefreshError('Refresh timed out — check server logs')
+          }
+        })
+        .catch((e: unknown) => {
+          clearInterval(schedulerPollRef.current!)
+          schedulerPollRef.current = null
+          setWeekRefreshing(false)
+          setWeekRefreshError(e instanceof Error ? e.message : 'Status check failed')
+        })
+    }, 3000)
   }, [])
 
   const handleRefreshGame = useCallback(
