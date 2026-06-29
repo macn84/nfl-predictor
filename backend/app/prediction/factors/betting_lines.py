@@ -78,6 +78,10 @@ _NFL_TEAM_PATTERNS: dict[str, str] = {
     "SF": "49ers", "TB": "Buccaneers", "TEN": "Titans", "WAS": "Commanders",
 }
 
+# nflverse CSV exports use "LA" for the Rams; nflreadpy uses "LAR". Normalize
+# before pattern lookup so either form matches against full API team names.
+_TEAM_ALIASES: dict[str, str] = {"LA": "LAR"}
+
 # Discovered NFL IDs — lazy-initialized on first live call, stable within a season.
 _oddspapi_nfl_sport_id: int | None = None
 _oddspapi_nfl_tournament_id: int | None = None
@@ -133,7 +137,8 @@ def _skip(reason: str) -> FactorResult:
 
 def _team_name_matches(full_name: str, abbrev: str) -> bool:
     """Return True if abbrev maps to a nickname found in full_name (case-insensitive)."""
-    nickname = _NFL_TEAM_PATTERNS.get(abbrev.upper(), "")
+    canonical = _TEAM_ALIASES.get(abbrev.upper(), abbrev.upper())
+    nickname = _NFL_TEAM_PATTERNS.get(canonical, "")
     return bool(nickname) and nickname.lower() in full_name.lower()
 
 
@@ -570,6 +575,12 @@ def calculate(
         FactorResult with score in [-100, +100]. Weight=0 if unavailable.
     """
     weight = settings.weight_betting_lines
+
+    logger.debug(
+        "betting_lines.calculate: %s vs %s game_date=%s historical=%s",
+        home_team, away_team, game_date,
+        game_date is not None and is_historical(game_date),
+    )
 
     # --- Historical: use CSV closing lines (no API needed) ---
     if game_date is not None and is_historical(game_date):

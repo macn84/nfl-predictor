@@ -68,7 +68,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
   const isUpcoming =
     !locked &&
     gameday !== '' &&
-    new Date(gameday) >= new Date(new Date().toDateString())
+    new Date(gameday + 'T12:00:00') >= new Date(new Date().toDateString())
 
   async function handleLock() {
     setLocking(true)
@@ -100,7 +100,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
           </div>
           {gameday && (
             <div className="text-xs text-app-dim mt-0.5 font-mono">
-              {new Date(gameday).toLocaleDateString('en-US', {
+              {new Date(gameday + 'T12:00:00').toLocaleDateString('en-US', {
                 weekday: 'short',
                 month: 'short',
                 day: 'numeric',

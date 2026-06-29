@@ -36,7 +36,7 @@ export function GameDetail() {
             </h1>
             {game.gameday && (
               <div className="text-sm text-app-muted font-mono">
-                {new Date(game.gameday).toLocaleDateString('en-US', {
+                {new Date(game.gameday + 'T12:00:00').toLocaleDateString('en-US', {
                   weekday: 'long',
                   month: 'long',
                   day: 'numeric',
