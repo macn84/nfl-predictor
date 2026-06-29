@@ -14,6 +14,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
+from app.api.utils import _game_id
 from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache, lock_game_to_cache
@@ -55,6 +56,7 @@ class GamePrediction(BaseModel):
     confidence: float
     factors: list[FactorResult]
     locked: bool  # True when this prediction is the official prediction of record
+    refreshable: bool = False  # True for upcoming games that can be manually re-predicted
     home_ml_juice: int | None = None  # American odds for home team moneyline (e.g. -145)
     away_ml_juice: int | None = None  # American odds for away team moneyline (e.g. +125)
 
@@ -69,9 +71,6 @@ class WeekPredictionsResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _game_id(home_team: str, away_team: str) -> str:
-    return f"{home_team.lower()}-{away_team.lower()}"
 
 
 def _cache_key(home: str, away: str, game_date: date | None) -> str | None:
@@ -173,6 +172,7 @@ def _predict_week_games(
                 confidence=confidence,
                 factors=factors,
                 locked=locked,
+                refreshable=not is_completed,
                 home_ml_juice=home_ml_juice,
                 away_ml_juice=away_ml_juice,
             )
@@ -295,6 +295,7 @@ def get_game_prediction(
             confidence=pred.confidence,
             factors=pred.factors,
             locked=locked,
+            refreshable=not is_completed,
         )
 
     raise HTTPException(

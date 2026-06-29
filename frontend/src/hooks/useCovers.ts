@@ -8,7 +8,7 @@ interface UseCoversResult {
   error: string | null
 }
 
-export function useCovers(season: number, week: number): UseCoversResult {
+export function useCovers(season: number, week: number, refreshKey = 0): UseCoversResult {
   const [data, setData] = useState<WeekCoversResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +33,7 @@ export function useCovers(season: number, week: number): UseCoversResult {
     return () => {
       cancelled = true
     }
-  }, [season, week])
+  }, [season, week, refreshKey])
 
   return { data, loading, error }
 }

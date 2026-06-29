@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AccuracyResponse, FrontendConfig, GamePrediction, RefreshResponse, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
+import type { AccuracyResponse, FrontendConfig, GamePrediction, RefreshResponse, SchedulerRunResponse, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
 
 export async function fetchWeeks(season: number): Promise<WeeksResponse> {
   return apiFetch<WeeksResponse>(`/api/v1/weeks?season=${season}`)
@@ -32,8 +32,27 @@ export async function triggerRefresh(season: number): Promise<RefreshResponse> {
   })
 }
 
-export async function refreshOdds(): Promise<{ status: string }> {
-  return apiFetch<{ status: string }>('/api/v1/odds/refresh', { method: 'POST' })
+/**
+ * Trigger the full scheduler job: pull fresh nflverse data, fetch new odds/weather,
+ * and re-predict all current-week upcoming games. Falls back for missed cron runs.
+ */
+export async function runScheduler(): Promise<SchedulerRunResponse> {
+  return apiFetch<SchedulerRunResponse>('/api/v1/scheduler/run-now', { method: 'POST' })
+}
+
+/**
+ * Refresh a single upcoming game: evict its cache entry, bust odds caches,
+ * re-run predict() with fresh data, and return the updated prediction.
+ */
+export async function refreshGame(
+  week: number,
+  gameId: string,
+  season: number,
+): Promise<GamePrediction> {
+  return apiFetch<GamePrediction>(
+    `/api/v1/predictions/${week}/${gameId}/refresh?season=${season}`,
+    { method: 'POST' },
+  )
 }
 
 export async function fetchAccuracy(season: number): Promise<AccuracyResponse> {

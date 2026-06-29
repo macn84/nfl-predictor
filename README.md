@@ -57,7 +57,9 @@ The repo ships with neutral defaults. Set values in `.env` to apply your own tun
 | `GET` | `/api/v1/covers/{week}/{game_id}?season=` | Single game cover detail (auth required) |
 | `GET` | `/api/v1/accuracy?season=` | Season winner accuracy |
 | `GET` | `/api/v1/accuracy/covers?season=` | Season cover accuracy |
-| `POST` | `/api/v1/refresh` | Re-download and cache data |
+| `POST` | `/api/v1/refresh` | Re-download and cache data (auth required) |
+| `POST` | `/api/v1/odds/refresh` | Bust odds caches and evict current-week entries from score cache (auth required) |
+| `POST` | `/api/v1/predictions/{week}/{game_id}/refresh?season=` | Re-fetch live odds/weather and re-predict a single upcoming game (auth required) |
 | `POST` | `/api/v1/auth/login` | Exchange credentials for a JWT token |
 | `GET` | `/api/v1/auth/me` | Validate token |
 | `POST` | `/api/v1/predictions/{week}/{game_id}/lock?season=` | Lock a prediction (auth required) |
@@ -145,7 +147,7 @@ backend/
 │   ├── config.py               # Settings, both weight profiles, calibration constants
 │   ├── scheduler.py            # APScheduler cron jobs (Mon/Thu/Sat/Sun ET)
 │   ├── auth/deps.py            # JWT auth dependencies
-│   ├── api/                    # predictions, covers, accuracy, auth, lock, refresh, config
+│   ├── api/                    # predictions, covers, accuracy, auth, lock, refresh, game_refresh, utils, config
 │   ├── data/
 │   │   ├── loader.py           # nflreadpy wrappers + CSV caching
 │   │   ├── cache.py            # score cache load/write/lock

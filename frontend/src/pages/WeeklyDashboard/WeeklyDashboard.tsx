@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
 import { useLLM } from '../../hooks/useLLM'
-import { refreshOdds } from '../../api/predictions'
+import { runScheduler, refreshGame } from '../../api/predictions'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
 
@@ -42,20 +42,45 @@ export function WeeklyDashboard() {
   const [mode, setMode] = useState<PredictionMode>('predictions')
   const [edgeOnly, setEdgeOnly] = useState(false)
   const [forceAnalysis, setForceAnalysis] = useState(false)
-  const [oddsRefreshing, setOddsRefreshing] = useState(false)
-  const [oddsRefreshError, setOddsRefreshError] = useState<string | null>(null)
 
-  const handleRefreshOdds = useCallback(async () => {
-    setOddsRefreshing(true)
-    setOddsRefreshError(null)
+  // Shared refresh key — incrementing triggers re-fetch in both hooks.
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Week-level refresh state (runs the full scheduler job).
+  const [weekRefreshing, setWeekRefreshing] = useState(false)
+  const [weekRefreshError, setWeekRefreshError] = useState<string | null>(null)
+
+  // Per-game refresh state — tracks which game_id is currently refreshing.
+  const [refreshingGameId, setRefreshingGameId] = useState<string | null>(null)
+
+  const handleRefreshWeek = useCallback(async () => {
+    setWeekRefreshing(true)
+    setWeekRefreshError(null)
     try {
-      await refreshOdds()
+      await runScheduler()
+      setRefreshKey((k) => k + 1)
     } catch (e) {
-      setOddsRefreshError(e instanceof Error ? e.message : 'Odds refresh failed')
+      setWeekRefreshError(e instanceof Error ? e.message : 'Refresh failed')
     } finally {
-      setOddsRefreshing(false)
+      setWeekRefreshing(false)
     }
   }, [])
+
+  const handleRefreshGame = useCallback(
+    async (gameId: string, week: number) => {
+      setRefreshingGameId(gameId)
+      setWeekRefreshError(null)
+      try {
+        await refreshGame(week, gameId, season)
+        setRefreshKey((k) => k + 1)
+      } catch (e) {
+        setWeekRefreshError(e instanceof Error ? e.message : 'Game refresh failed')
+      } finally {
+        setRefreshingGameId(null)
+      }
+    },
+    [season],
+  )
 
   const { data: weeksData, loading: weeksLoading, error: weeksError } = useWeeks(season)
 
@@ -72,13 +97,13 @@ export function WeeklyDashboard() {
     data: predictionsData,
     loading: predictionsLoading,
     error: predictionsError,
-  } = usePredictions(season, selectedWeek)
+  } = usePredictions(season, selectedWeek, refreshKey)
 
   const {
     data: coversData,
     loading: coversLoading,
     error: coversError,
-  } = useCovers(season, selectedWeek)
+  } = useCovers(season, selectedWeek, refreshKey)
 
   const { responses: llmResponses, analyzing, analyzingGames, error: llmError, analyze, analyzeGame } = useLLM(
     season,
@@ -181,20 +206,20 @@ export function WeeklyDashboard() {
               </label>
               <div className="w-px h-4 bg-app-border" />
               <button
-                onClick={() => void handleRefreshOdds()}
-                disabled={oddsRefreshing}
-                title="Bust the live odds cache so the next prediction call fetches fresh lines from the API"
+                onClick={() => void handleRefreshWeek()}
+                disabled={weekRefreshing}
+                title="Re-pull nflverse data, fetch fresh odds/weather, and re-predict all upcoming games this week"
                 className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-green disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {oddsRefreshing ? 'Refreshing…' : 'Refresh Odds'}
+                {weekRefreshing ? 'Refreshing…' : 'Refresh Week'}
               </button>
             </div>
           )}
           {llmError && (
             <span className="text-xs text-app-red font-mono">{llmError}</span>
           )}
-          {oddsRefreshError && (
-            <span className="text-xs text-app-red font-mono">{oddsRefreshError}</span>
+          {weekRefreshError && (
+            <span className="text-xs text-app-red font-mono">{weekRefreshError}</span>
           )}
           <SortFilterBar
             sortBy={sortBy}
@@ -243,6 +268,8 @@ export function WeeklyDashboard() {
                   llm={llmResponses[game.game_id] ?? null}
                   onAnalyzeGame={analyzeGame}
                   analyzingGame={analyzingGames.has(game.game_id)}
+                  onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
+                  refreshing={refreshingGameId === game.game_id}
                 />
               ))}
             </div>
@@ -258,6 +285,8 @@ export function WeeklyDashboard() {
                   llm={llmResponses[game.game_id] ?? null}
                   onAnalyzeGame={analyzeGame}
                   analyzingGame={analyzingGames.has(game.game_id)}
+                  onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
+                  refreshing={refreshingGameId === game.game_id}
                 />
               ))}
             </div>

@@ -6,11 +6,12 @@ GET  /api/v1/llm/{week}?season=           — fetch stored responses for a week
      - unauthenticated: verdict + explain returned; flag stripped
      - authenticated: full response including flag
 
-Locked + completed games are never re-analyzed (prediction of record is final).
+Completed games (both scores present in nflverse schedule) are always skipped.
+Locked games (locked=True in score_cache.json, written by the /lock endpoint) are
+also always skipped — the prediction of record is final and must not be re-analyzed.
 """
 
 import logging
-import math
 from datetime import date
 from typing import Any, Optional
 
@@ -20,10 +21,12 @@ import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel
 
+from app.api.utils import _game_id
 from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
+from app.scheduler import _parse_gameday
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict, predict_cover
 from app.services.llm import AnalysisMode, analyze_game, get_week_responses
@@ -69,12 +72,27 @@ class LLMAnalyzeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _game_id(home: str, away: str) -> str:
-    return f"{home.lower()}-{away.lower()}"
-
 
 def _cache_key(home: str, away: str, game_date: date | None) -> str | None:
     return f"{home}-{away}-{game_date}" if game_date else None
+
+
+def _is_locked(home: str, away: str, row: "pd.Series", score_cache: dict) -> bool:
+    """Return True if this game has been locked as the prediction of record.
+
+    Args:
+        home: Home team abbreviation (e.g. "KC").
+        away: Away team abbreviation (e.g. "BUF").
+        row: Schedule DataFrame row for the game; must contain a "gameday" column.
+        score_cache: Dict keyed by cache key (from load_score_cache()); pass {} if
+            the cache is unavailable (safe default — returns False for all games).
+
+    Returns:
+        True if the score_cache entry for this game has ``locked=True``, else False.
+    """
+    game_date = _parse_gameday(row)
+    cache_key = f"{home}-{away}-{game_date}" if game_date else f"{home}-{away}"
+    return score_cache.get(cache_key, {}).get("locked", False)
 
 
 def _factors_from_cache(cached: dict, weights: dict[str, float]) -> list[dict[str, Any]]:
@@ -200,21 +218,18 @@ def _run_week_analysis(
         if game_id and _game_id(home, away) != game_id:
             continue
 
-        gameday_raw = row.get("gameday", "")
-        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
-        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
-
-        game_date: date | None = None
-        if gameday:
-            try:
-                game_date = date.fromisoformat(gameday)
-            except ValueError:
-                pass
+        game_date = _parse_gameday(row)
+        gameday = str(game_date) if game_date else ""
 
         is_completed = (
             pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
         )
         if is_completed:
+            skipped += 1
+            continue
+
+        # Hard guardrail: skip locked games — prediction of record is final.
+        if _is_locked(home, away, row, score_cache or {}):
             skipped += 1
             continue
 
@@ -249,10 +264,9 @@ def analyze_week(
     """Queue LLM analysis for eligible games in a week.
 
     Returns 202 immediately; analysis runs in the background. Poll GET /llm/{week}
-    to retrieve results as they are written. Skips completed games (prediction of
-    record is final). Re-runs blocked unless force=true.
-
-    Provide game_id to analyze a single game instead of the full week.
+    to retrieve results as they are written. Skips completed games (both scores
+    present) and locked games (locked=True in score_cache). Re-runs blocked unless
+    force=true. Provide game_id to analyze a single game instead of the full week.
     """
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
@@ -264,9 +278,11 @@ def analyze_week(
             detail=f"No games found for season {season} week {week}",
         )
 
+    score_cache = load_score_cache() or {}
     eligible = sum(
         1 for _, row in week_games.iterrows()
         if not (pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")))
+        and not _is_locked(str(row["home_team"]), str(row["away_team"]), row, score_cache)
         and (game_id is None or _game_id(str(row["home_team"]), str(row["away_team"])) == game_id)
     )
 

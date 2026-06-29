@@ -50,12 +50,30 @@ def load_score_cache() -> dict[str, dict] | None:
     return {g["game_id"]: g for g in games}
 
 
-def load_cover_score_cache() -> dict[str, dict] | None:
+def write_cover_score_cache(entries: list[dict]) -> None:
+    """Write the full list of cache entries to data/cover_score_cache.json.
+
+    Args:
+        entries: List of cache dicts, each with a "game_id" key matching the
+                 "{HOME}-{AWAY}-{YYYY-MM-DD}" format.
+    """
+    _COVER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _COVER_CACHE_PATH.open("w") as f:
+        json.dump(entries, f, indent=2)
+
+
+def load_cover_score_cache(*, allow_fallback: bool = True) -> dict[str, dict] | None:
     """Load the 7-factor cover score cache.
 
-    Tries cover_score_cache.json first, then cover_score_cache_full_history.json,
-    then falls back to score_cache.json (6-factor winner cache). Returns None if
-    no cache file exists.
+    Tries cover_score_cache.json first, then cover_score_cache_full_history.json.
+    When allow_fallback=True (default), also tries score_cache.json as a last
+    resort. Pass allow_fallback=False when evicting entries to avoid accidentally
+    loading 6-factor winner data and writing it back as cover-format entries.
+
+    Args:
+        allow_fallback: If True, fall back to score_cache.json when no cover
+            cache file exists. If False, return None when no cover cache file
+            exists (safe for eviction callers).
 
     Returns:
         Dict keyed by "{home}-{away}-{game_date}", or None if no file is found.
@@ -64,7 +82,7 @@ def load_cover_score_cache() -> dict[str, dict] | None:
         path = _COVER_CACHE_PATH
     elif _COVER_CACHE_FULL_PATH.exists():
         path = _COVER_CACHE_FULL_PATH
-    elif _CACHE_PATH.exists():
+    elif allow_fallback and _CACHE_PATH.exists():
         path = _CACHE_PATH
     else:
         return None

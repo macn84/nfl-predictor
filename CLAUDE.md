@@ -69,8 +69,10 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `backend/app/prediction/models.py` | `FactorResult`, `PredictionResult`, `CoverPredictionResult` — do not change |
 | `backend/app/data/pbp_stats.py` | PBP data layer for success_rate cover factor |
 | `backend/app/data/qb_stats.py` | QB rating computation (decay-weighted, opp-adjusted, regression-stabilized) |
-| `backend/app/data/cache.py` | Score cache load/write; `apply_weights()` |
+| `backend/app/data/cache.py` | Score cache load/write; `apply_weights()`; `load_cover_score_cache(allow_fallback=)` |
 | `backend/app/config.py` | All settings, both weight profiles, all calibration constants |
+| `backend/app/api/game_refresh.py` | Per-game manual refresh `POST /predictions/{week}/{game_id}/refresh` |
+| `backend/app/api/utils.py` | Shared API helpers — `_game_id(home, away)` canonical game ID |
 | `backend/app/api/cover_accuracy.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `backend/app/api/covers.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `validation/optimise_weights.py` | Winner-only grid search; writes `optimiser_results.json` |
@@ -78,12 +80,19 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `validation/backtest.py` | `--mode cover` uses `cover_score_cache.json` + `COVER_MARGIN_*` |
 | `validation/analyse_confidence.py` | `--target cover` auto-detects cover results + cache files |
 
+## Shared utilities — import, never inline
+- `app.scheduler._parse_gameday(row)` — NaN-safe gameday → `date | None`; used in 10+ files; always import, never re-implement inline
+- `app.api.utils._game_id(home, away)` — lowercase hyphen game ID; all API modules import from here
+- `app.prediction.factors.betting_lines.bust_cache()` — clears all in-memory odds caches; call before re-running `predict()` for a manual refresh
+
 ## Dev
 - `make dev` — starts both servers (backend :8000, frontend :5173)
 - `make test` / `make lint` — pytest + ruff / vitest + eslint
 - `make setup-private` — apply private overlay (run from `nfl-predictor/`)
 
 ## Known gotchas
+- **Score cache eviction**: always rescue `opening_spread` + `opening_spread_captured_at` from the popped entry before discarding — see `game_refresh.py` for the pattern. Omitting this permanently loses the first-captured opening line.
+- **`load_cover_score_cache()`** falls back to `score_cache.json` if no cover cache file exists. Pass `allow_fallback=False` in eviction callers to prevent writing 6-factor winner entries into the cover cache.
 - FastAPI `Path(...)` gives a path param a Python default value. Injected non-default params
   (`BackgroundTasks`, `Request`) must be declared *before* any `Path(...)` param.
 - Stale mocks in `tests/test_factors.py`: if a test fails with "not enough values to unpack",

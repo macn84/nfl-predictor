@@ -8,7 +8,7 @@ interface UsePredictionsResult {
   error: string | null
 }
 
-export function usePredictions(season: number, week: number): UsePredictionsResult {
+export function usePredictions(season: number, week: number, refreshKey = 0): UsePredictionsResult {
   const [data, setData] = useState<WeekPredictionsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +33,7 @@ export function usePredictions(season: number, week: number): UsePredictionsResu
     return () => {
       cancelled = true
     }
-  }, [season, week])
+  }, [season, week, refreshKey])
 
   return { data, loading, error }
 }

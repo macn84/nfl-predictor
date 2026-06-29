@@ -3,6 +3,9 @@ refresh.py - Data refresh endpoint.
 
 POST /api/v1/refresh — re-download schedule, weekly stats, and roster data
                         for the given season (and 3 prior seasons for historical context).
+POST /api/v1/odds/refresh — bust odds caches and evict current-week upcoming games
+                            from score_cache.json so the next covers request fetches
+                            fresh bookmaker lines.
 """
 
 from fastapi import APIRouter, Depends
@@ -10,7 +13,9 @@ from pydantic import BaseModel
 
 from app.auth.deps import get_current_user
 from app.data import accuracy_cache
+from app.data.cache import load_cover_score_cache, load_score_cache, write_cover_score_cache, write_score_cache
 from app.data.loader import load_rosters, load_schedules, load_weekly_stats
+from app.scheduler import _current_nfl_season, _current_week, _parse_gameday
 import app.prediction.factors.betting_lines as _bl
 
 router = APIRouter(prefix="/api/v1")
@@ -57,19 +62,60 @@ def refresh_data(body: RefreshRequest, _: str = Depends(get_current_user)) -> Re
 
 @router.post("/odds/refresh", response_model=OddsRefreshResponse)
 def refresh_odds(_: str = Depends(get_current_user)) -> OddsRefreshResponse:
-    """Bust the in-memory live odds caches so the next prediction call fetches fresh lines.
+    """Bust in-memory odds caches and evict current-week upcoming games from score_cache.json.
 
-    Clears both the OddspaPI cache (primary) and The Odds API cache (fallback),
-    including the per-bookmaker multi-book cache used by market_signals_factor.
-    Does not make any API calls itself — the next prediction request will re-fetch.
+    Two-phase bust:
+      1. Clear the in-memory OddspaPI / The Odds API response caches so the next
+         betting_lines call hits the live API rather than a stale in-process snapshot.
+      2. Remove all current-week upcoming games (those without final scores) from
+         score_cache.json. This forces the covers endpoint to call predict_cover()
+         on the next request rather than serving stale live_spread values from the
+         JSON cache. opening_spread will be re-captured by the next scheduler run.
+
+    Does not make any external API calls itself — the next covers request will re-fetch.
 
     Returns:
         OddsRefreshResponse confirming the bust.
     """
-    _bl._oddspapi_cache = None
-    _bl._oddspapi_cache_ts = 0.0
-    _bl._oddspapi_error_until = 0.0
-    _bl._oddspapi_book_cache.clear()
-    _bl._odds_cache = None
-    _bl._odds_cache_ts = 0.0
+    # Phase 1 — clear in-memory API caches.
+    _bl.bust_cache()
+
+    # Phase 2 — evict current-week upcoming games from score_cache.json and
+    # cover_score_cache.json so the next prediction request fetches fresh data.
+    # Mirrors the scheduler's eviction logic. opening_spread is preserved on
+    # evicted entries so the first-captured opening line is not lost.
+    season = _current_nfl_season()
+    history_seasons = list(range(2015, season + 1))
+    schedules = load_schedules(history_seasons)
+    current_week = _current_week(schedules, season)
+
+    if current_week is not None:
+        score_cache = load_score_cache() or {}
+        # allow_fallback=False prevents writing winner-format entries into the cover cache.
+        cover_cache = load_cover_score_cache(allow_fallback=False) or {}
+        season_games = schedules[schedules["season"] == season]
+        upcoming_this_week = season_games[
+            (season_games["week"] == current_week)
+            & (season_games["home_score"].isna() | season_games["away_score"].isna())
+        ]
+        for _, row in upcoming_this_week.iterrows():
+            home = str(row["home_team"])
+            away = str(row["away_team"])
+            game_date = _parse_gameday(row)
+            cache_key = f"{home}-{away}-{game_date}" if game_date else None
+            if cache_key:
+                # Preserve opening_spread so the first-captured line is not lost.
+                old_entry = score_cache.pop(cache_key, None)
+                if old_entry and old_entry.get("opening_spread") is not None:
+                    score_cache[cache_key] = {
+                        "game_id": cache_key,
+                        "opening_spread": old_entry["opening_spread"],
+                        "opening_spread_captured_at": old_entry.get("opening_spread_captured_at"),
+                        "has_opening_spread": True,
+                    }
+                cover_cache.pop(cache_key, None)
+        write_score_cache(list(score_cache.values()))
+        if cover_cache:
+            write_cover_score_cache(list(cover_cache.values()))
+
     return OddsRefreshResponse(status="ok")

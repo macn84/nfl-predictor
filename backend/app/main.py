@@ -17,6 +17,7 @@ from app.api import (
     cover_accuracy,
     covers,
     frontend_config,
+    game_refresh,
     llm,
     lock,
     predictions,
@@ -56,6 +57,7 @@ app.include_router(auth.router)
 app.include_router(frontend_config.router)
 app.include_router(predictions.router)
 app.include_router(lock.router)
+app.include_router(game_refresh.router)
 app.include_router(covers.router)
 app.include_router(refresh.router)
 app.include_router(accuracy.router)

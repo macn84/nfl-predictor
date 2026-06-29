@@ -768,3 +768,22 @@ def get_live_odds_data(
         num_books=len(all_spreads),
         all_spreads=all_spreads,
     )
+
+
+def bust_cache() -> None:
+    """Clear all in-memory betting-lines API caches.
+
+    Resets both the OddspaPI and The Odds API response caches plus the
+    per-bookmaker multi-book cache. The next betting_lines call will hit
+    the live API rather than a stale in-process snapshot.
+
+    Call this before re-running predict() when fresh bookmaker lines are
+    required (e.g. manual game refresh, scheduled odds bust).
+    """
+    global _oddspapi_cache, _oddspapi_cache_ts, _oddspapi_error_until, _odds_cache, _odds_cache_ts
+    _oddspapi_cache = None
+    _oddspapi_cache_ts = 0.0
+    _oddspapi_error_until = 0.0
+    _oddspapi_book_cache.clear()
+    _odds_cache = None
+    _odds_cache_ts = 0.0

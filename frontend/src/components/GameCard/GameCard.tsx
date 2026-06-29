@@ -42,6 +42,10 @@ interface GameCardProps {
   onAnalyzeGame?: (gameId: string, force: boolean) => Promise<void>
   /** True while this game's per-card analysis is in flight */
   analyzingGame?: boolean
+  /** Callback to refresh this game's prediction with live data */
+  onRefresh?: () => Promise<void>
+  /** True while this game's refresh is in flight */
+  refreshing?: boolean
 }
 
 function formatSpread(team: string, spread: number): string {
@@ -49,7 +53,7 @@ function formatSpread(team: string, spread: number): string {
   return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
 }
 
-export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onAnalyzeGame, analyzingGame }: GameCardProps) {
+export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onAnalyzeGame, analyzingGame, onRefresh, refreshing }: GameCardProps) {
   const { isAuthenticated } = useAuth()
   const { home_team, away_team, week, game_id, gameday } = game
   const [locked, setLocked] = useState(game.locked)
@@ -201,6 +205,20 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
                 className="text-xs font-mono text-app-muted hover:text-app-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {analyzingGame ? '…' : '↺ AI'}
+              </button>
+            )}
+            {isAuthenticated && isUpcoming && onRefresh && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  void onRefresh()
+                }}
+                disabled={refreshing}
+                title="Re-fetch live odds/weather and re-predict this game"
+                className="text-xs font-mono text-app-muted hover:text-app-green disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {refreshing ? '…' : '↺'}
               </button>
             )}
             {isAuthenticated && isUpcoming && !locked && (

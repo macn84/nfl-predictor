@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
+from app.api.utils import _game_id
 from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
@@ -58,9 +59,6 @@ class WeekCoversResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _game_id(home_team: str, away_team: str) -> str:
-    return f"{home_team.lower()}-{away_team.lower()}"
 
 
 def _cover_week_games(

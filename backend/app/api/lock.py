@@ -16,6 +16,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 
+from app.api.utils import _game_id
 from app.auth.deps import get_current_user
 from app.data import accuracy_cache
 from app.data.cache import lock_game_to_cache
@@ -49,9 +50,6 @@ class LockResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _game_id(home_team: str, away_team: str) -> str:
-    return f"{home_team.lower()}-{away_team.lower()}"
 
 
 # ---------------------------------------------------------------------------

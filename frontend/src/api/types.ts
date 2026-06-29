@@ -17,6 +17,7 @@ export interface GamePrediction {
   confidence: number // 0..100
   factors: FactorResult[]
   locked: boolean
+  refreshable: boolean // True for upcoming games that can be manually re-predicted
   home_ml_juice: number | null // American odds for home team moneyline (e.g. -145)
   away_ml_juice: number | null // American odds for away team moneyline (e.g. +125)
 }
@@ -69,6 +70,15 @@ export interface RefreshResponse {
   status: string
   season: number
   games_cached: number
+}
+
+export interface SchedulerRunResponse {
+  status: string
+  season: number
+  week: number | null
+  games_newly_cached: number
+  games_skipped: number
+  elapsed_seconds: number
 }
 
 export interface WeekAccuracy {
