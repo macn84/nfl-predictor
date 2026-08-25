@@ -50,7 +50,12 @@ interface GameCardProps {
 
 function formatSpread(team: string, spread: number): string {
   if (spread === 0) return `${team} PK`
-  return spread > 0 ? `${team} +${spread}` : `${team} ${spread}`
+  // `spread` is nflverse convention: positive = home favoured.
+  // Sportsbook display convention is the opposite: the favourite shows a
+  // negative number. Flip the sign here, at the display boundary only —
+  // never negate the stored value itself (see CLAUDE.md spread convention).
+  const display = -spread
+  return display > 0 ? `${team} +${display}` : `${team} ${display}`
 }
 
 export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onAnalyzeGame, analyzingGame, onRefresh, refreshing }: GameCardProps) {
