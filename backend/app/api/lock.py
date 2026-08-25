@@ -22,6 +22,7 @@ from app.data import accuracy_cache
 from app.data.cache import lock_game_to_cache
 from app.data.loader import load_schedules
 from app.prediction.models import FactorResult
+from app.services.llm import evict_llm_response
 
 router = APIRouter(prefix="/api/v1")
 
@@ -95,6 +96,9 @@ def lock_game_prediction(
             home, away, season, game_date, schedules
         )
         accuracy_cache.clear()
+        # Locking recomputes the prediction now — any cached LLM verdict for
+        # this game was analyzed against the pre-lock factors, so it's stale.
+        evict_llm_response(season, week, game_id)
         return LockResponse(
             game_id=game_id,
             season=season,
@@ -150,6 +154,9 @@ def lock_week_predictions(
         predicted_winner, confidence, factors = lock_game_to_cache(
             home, away, season, game_date, schedules
         )
+        # Locking recomputes the prediction now — any cached LLM verdict for
+        # this game was analyzed against the pre-lock factors, so it's stale.
+        evict_llm_response(season, week, _game_id(home, away))
         results.append(
             LockResponse(
                 game_id=_game_id(home, away),

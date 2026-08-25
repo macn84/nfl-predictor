@@ -304,6 +304,28 @@ def _response_key(season: int, week: int, game_id: str, mode: AnalysisMode) -> s
 # ---------------------------------------------------------------------------
 
 
+def evict_llm_response(season: int, week: int, game_id: str) -> None:
+    """Remove any cached LLM analysis for this game (both modes).
+
+    Call whenever the underlying score_cache entry for this game is
+    evicted/recomputed, so a stale verdict/explain is never served against
+    factor scores that have since changed. No-op if nothing is cached.
+
+    Args:
+        season: NFL season year.
+        week: NFL week number.
+        game_id: Canonical lowercase '{home}-{away}' game ID.
+    """
+    responses = load_llm_responses()
+    changed = False
+    for mode in ("winner", "cover"):
+        key = _response_key(season, week, game_id, mode)
+        if responses.pop(key, None) is not None:
+            changed = True
+    if changed:
+        _save_llm_responses(responses)
+
+
 def analyze_game(
     game: dict[str, Any],
     *,

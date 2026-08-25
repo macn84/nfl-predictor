@@ -28,6 +28,7 @@ from app.data.loader import load_schedules
 from app.data.spreads import get_spread
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
+from app.services.llm import evict_llm_response
 
 router = APIRouter(prefix="/api/v1")
 
@@ -179,6 +180,10 @@ def refresh_game_prediction(
 
     existing[cache_key] = new_entry
     write_score_cache(list(existing.values()))
+
+    # The prediction just changed underneath any cached LLM verdict/explain
+    # for this game — evict it so a stale analysis isn't served as current.
+    evict_llm_response(season, week, game_id)
 
     return GameRefreshResponse(
         game_id=game_id,

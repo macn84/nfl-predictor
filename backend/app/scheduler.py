@@ -22,12 +22,14 @@ import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.api.utils import _game_id
 from app.config import settings
 from app.data import accuracy_cache
 from app.data.cache import apply_opening_spread, load_score_cache, write_score_cache
 from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
 from app.data.spreads import get_spread
 from app.prediction.engine import predict
+from app.services.llm import evict_llm_response
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -312,6 +314,9 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             old_entry = existing.pop(cache_key, None)
             old_opening_spread = old_entry.get("opening_spread") if old_entry else None
             old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+            # The prediction is about to be recomputed — any cached LLM
+            # verdict was analyzed against the now-stale factors.
+            evict_llm_response(season, current_week, _game_id(home, away))
         try:
             added = _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
             if is_current_week:
@@ -363,6 +368,9 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                 old_entry = existing.pop(cache_key, None)
                 old_opening_spread = old_entry.get("opening_spread") if old_entry else None
                 old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+                # The prediction is about to be recomputed — any cached LLM
+                # verdict was analyzed against the now-stale factors.
+                evict_llm_response(next_season, next_week, _game_id(home, away))
             try:
                 added = _add_to_cache(home, away, next_season, game_date, schedules, team_stats, existing)
                 if is_current_week:

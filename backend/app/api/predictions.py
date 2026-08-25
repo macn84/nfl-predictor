@@ -21,6 +21,7 @@ from app.data.cache import apply_weights, load_score_cache, lock_game_to_cache
 from app.data.loader import load_schedules
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
+from app.services.llm import evict_llm_response
 
 router = APIRouter(prefix="/api/v1")
 
@@ -143,6 +144,9 @@ def _predict_week_games(
             predicted_winner, confidence, raw_factors = lock_game_to_cache(
                 home, away, season, game_date, schedules
             )
+            # Auto-lock just computed a fresh prediction — any cached LLM
+            # verdict for this game predates it and is now stale.
+            evict_llm_response(season, week, _game_id(home, away))
             factors = [] if not authenticated else raw_factors
             locked = True
             bl = next((f for f in raw_factors if f.name == "betting_lines"), None)

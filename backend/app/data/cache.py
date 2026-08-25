@@ -124,6 +124,15 @@ def lock_game_to_cache(
     spread = get_spread(home, away, game_date) if game_date else None
 
     cache_key = f"{home}-{away}-{game_date}" if game_date else f"{home}-{away}"
+
+    existing = load_score_cache() or {}
+    # Rescue opening_spread from any existing entry before it's replaced —
+    # otherwise locking silently loses the first-captured opening line (same
+    # gotcha as the eviction in game_refresh.py; see CLAUDE.md).
+    old_entry = existing.get(cache_key)
+    old_opening_spread = old_entry.get("opening_spread") if old_entry else None
+    old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+
     cache_entry: dict = {
         "game_id": cache_key,
         "locked": True,
@@ -136,8 +145,11 @@ def lock_game_to_cache(
         },
         "spread": spread,
     }
+    if old_opening_spread is not None:
+        cache_entry["opening_spread"] = old_opening_spread
+        cache_entry["opening_spread_captured_at"] = old_opening_spread_ts
+        cache_entry["has_opening_spread"] = True
 
-    existing = load_score_cache() or {}
     entries = [e for e in existing.values() if e.get("game_id") != cache_key]
     entries.append(cache_entry)
     write_score_cache(entries)

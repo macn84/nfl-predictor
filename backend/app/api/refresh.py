@@ -11,11 +11,13 @@ POST /api/v1/odds/refresh — bust odds caches and evict current-week upcoming g
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.api.utils import _game_id
 from app.auth.deps import get_current_user
 from app.data import accuracy_cache
 from app.data.cache import load_cover_score_cache, load_score_cache, write_cover_score_cache, write_score_cache
 from app.data.loader import load_rosters, load_schedules, load_weekly_stats
 from app.scheduler import _current_nfl_season, _current_week, _parse_gameday
+from app.services.llm import evict_llm_response
 import app.prediction.factors.betting_lines as _bl
 
 router = APIRouter(prefix="/api/v1")
@@ -114,6 +116,9 @@ def refresh_odds(_: str = Depends(get_current_user)) -> OddsRefreshResponse:
                         "has_opening_spread": True,
                     }
                 cover_cache.pop(cache_key, None)
+                # Prediction for this game is about to change — drop any
+                # cached LLM verdict analyzed against the pre-refresh factors.
+                evict_llm_response(season, current_week, _game_id(home, away))
         write_score_cache(list(score_cache.values()))
         if cover_cache:
             write_cover_score_cache(list(cover_cache.values()))
