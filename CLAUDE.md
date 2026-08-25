@@ -79,6 +79,7 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `validation/optimise_cover_weights.py` | Cover-only grid search (7 factors); writes `cover_optimiser_results.json` |
 | `validation/backtest.py` | `--mode cover` uses `cover_score_cache.json` + `COVER_MARGIN_*` |
 | `validation/analyse_confidence.py` | `--target cover` auto-detects cover results + cache files |
+| `validation/season_sim.py` | Rolling week-by-week season simulator; prints projected W-L, probability-weighted win totals, and an exact Poisson-Binomial win-total confidence table (`P(wins > X.5)` per team) |
 
 ## Shared utilities — import, never inline
 - `app.scheduler._parse_gameday(row)` — NaN-safe gameday → `date | None`; used in 10+ files; always import, never re-implement inline
