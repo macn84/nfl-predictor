@@ -13,14 +13,25 @@ function computeEV(modelProb: number, juice: number): number {
 
 const BANKROLL = 100
 
-function computeKelly(confidence: number, juice: number): number {
+export function computeKelly(
+  confidence: number,
+  juice: number,
+  verdict?: LLMGameResponse['verdict'],
+): number {
   if (confidence <= 60) return 0
+  // AI thinks the pick is the wrong direction — staking on it is the
+  // highest-risk case, not a "reduce" case. Zero it out rather than shrink it.
+  if (verdict === 'DISAGREE') return 0
   const p = confidence / 100
   const q = 1 - p
   const b = juice < 0 ? 100 / Math.abs(juice) : juice / 100
   const fullKelly = (b * p - q) / b
   if (fullKelly <= 0) return 0
-  const multiplier = confidence <= 75 ? 0.25 : 0.5
+  let multiplier = confidence <= 75 ? 0.25 : 0.5
+  // AI says direction is right but confidence is overstated — halve the
+  // existing fractional-Kelly multiplier (quarter->eighth, half->quarter)
+  // rather than replacing the base staking model.
+  if (verdict === 'FADE') multiplier *= 0.5
   return Math.round(fullKelly * multiplier * BANKROLL * 100) / 100
 }
 
@@ -147,7 +158,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
             const isHome = g.predicted_winner === g.home_team
             const mlJuice = (isHome ? g.home_ml_juice : g.away_ml_juice) ?? null
             const juice = mlJuice ?? -110
-            const wager = computeKelly(confidence, juice)
+            const wager = computeKelly(confidence, juice, llm?.verdict)
             return wager > 0 ? (
               <div>
                 Wager:{' '}
@@ -155,14 +166,20 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
                 <span className="text-app-dim text-xs ml-1">
                   ({juice > 0 ? `+${juice}` : juice}{mlJuice === null ? ', est.' : ''})
                 </span>
+                {llm?.verdict === 'FADE' && (
+                  <span className="text-app-dim text-xs ml-1">(½ stake, AI: FADE)</span>
+                )}
               </div>
             ) : (
-              <div className="text-app-dim">Wager: <span className="font-mono">$0</span></div>
+              <div className="text-app-dim">
+                Wager: <span className="font-mono">$0</span>
+                {llm?.verdict === 'DISAGREE' && <span className="text-xs ml-1">(AI disagrees)</span>}
+              </div>
             )
           })()}
         </div>
       ) : (
-        <CoverStats game={game as GameCoverPrediction} confidence={confidence} showWager={isAuthenticated && isUpcoming} />
+        <CoverStats game={game as GameCoverPrediction} confidence={confidence} showWager={isAuthenticated && isUpcoming} llm={llm} />
       )}
 
       <div className="mt-3 pt-3 border-t border-app-border space-y-2">
@@ -300,7 +317,17 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
   )
 }
 
-function CoverStats({ game, confidence, showWager }: { game: GameCoverPrediction; confidence: number; showWager: boolean }) {
+function CoverStats({
+  game,
+  confidence,
+  showWager,
+  llm,
+}: {
+  game: GameCoverPrediction
+  confidence: number
+  showWager: boolean
+  llm?: LLMGameResponse | null
+}) {
   const { spread, predicted_cover, predicted_margin, home_team, away_team, home_juice, away_juice } = game
 
   const juice =
@@ -308,7 +335,7 @@ function CoverStats({ game, confidence, showWager }: { game: GameCoverPrediction
     predicted_cover === away_team ? away_juice :
     null
   const ev = predicted_cover !== null ? computeEV(confidence, juice ?? -110) : null
-  const wager = showWager ? computeKelly(confidence, juice ?? -110) : null
+  const wager = showWager ? computeKelly(confidence, juice ?? -110, llm?.verdict) : null
 
   return (
     <div className="text-sm text-app-muted space-y-0.5">
@@ -344,9 +371,15 @@ function CoverStats({ game, confidence, showWager }: { game: GameCoverPrediction
           <div>
             Wager:{' '}
             <span className="font-semibold font-mono text-app-gold">${wager.toFixed(2)}</span>
+            {llm?.verdict === 'FADE' && (
+              <span className="text-app-dim text-xs ml-1">(½ stake, AI: FADE)</span>
+            )}
           </div>
         ) : (
-          <div className="text-app-dim">Wager: <span className="font-mono">$0</span></div>
+          <div className="text-app-dim">
+            Wager: <span className="font-mono">$0</span>
+            {llm?.verdict === 'DISAGREE' && <span className="text-xs ml-1">(AI disagrees)</span>}
+          </div>
         )
       )}
     </div>
