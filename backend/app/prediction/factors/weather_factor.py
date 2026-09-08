@@ -148,6 +148,10 @@ def calculate(
     temp_f = row.get("temp") if pd.notna(row.get("temp")) else None
     wind_mph = row.get("wind") if pd.notna(row.get("wind")) else None
     roof = row.get("roof") if pd.notna(row.get("roof")) else None
+    # nflverse marks international/neutral-site games (e.g. London, Australia)
+    # via the 'location' column. Informational only — doesn't change scoring,
+    # since no factor here assumes home-field conditions that need discounting.
+    neutral_site = str(row.get("location", "")).strip().lower() == "neutral"
 
     category = weather_category(temp_f, wind_mph, roof)
 
@@ -163,6 +167,7 @@ def calculate(
                 "temp_f": temp_f,
                 "wind_mph": wind_mph,
                 "roof": roof,
+                "neutral_site": neutral_site,
                 "home_delta": 0.0,
                 "away_delta": 0.0,
             },
@@ -192,6 +197,7 @@ def calculate(
             "temp_f": temp_f,
             "wind_mph": wind_mph,
             "roof": roof,
+            "neutral_site": neutral_site,
             "home_delta": round(home_data["delta"], 3),
             "away_delta": round(away_data["delta"], 3),
             "home_category_games": home_data["category_games"],
