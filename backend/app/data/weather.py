@@ -27,6 +27,8 @@ from typing import Optional
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from app.data.job_status import record_job_run
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
@@ -345,13 +347,18 @@ def get_game_weather(
     for attempt in range(2):
         try:
             data = _fetch_json(url, params)
-            return _build_game_weather(data, stadium, game_datetime, source)
+            weather = _build_game_weather(data, stadium, game_datetime, source)
+            record_job_run("weather_api", ok=True)
+            return weather
         except Exception as exc:
             if attempt == 0:
                 logger.warning("Open-Meteo request failed (%s), retrying...", exc)
                 time.sleep(retry_delay)
             else:
                 logger.error("Open-Meteo request failed after retry: %s", exc)
+                record_job_run(
+                    "weather_api", ok=False, error=f"Open-Meteo request failed: {exc}"
+                )
                 return GameWeather(
                     condition=WeatherCondition.UNKNOWN,
                     temperature_c=None,

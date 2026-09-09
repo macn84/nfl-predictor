@@ -11,6 +11,16 @@ import nflreadpy as nfl
 import pandas as pd
 
 from app.config import settings
+from app.data.job_status import record_job_run
+
+
+def _record_nflverse(df: pd.DataFrame) -> None:
+    """Record an nflverse download attempt: ok when it returned rows."""
+    record_job_run(
+        "nflverse",
+        ok=not df.empty,
+        error=None if not df.empty else "nflverse download returned no rows",
+    )
 
 _schedules_memory: dict[str, pd.DataFrame] = {}
 _team_game_stats_memory: dict[str, pd.DataFrame] = {}
@@ -49,6 +59,7 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
         # Latest season may not be published yet — retry without it
         fallback = [s for s in seasons if s < max(seasons)]
         df = nfl.load_schedules(fallback).to_pandas() if fallback else pd.DataFrame()
+    _record_nflverse(df)
     df.to_csv(path, index=False)
     _schedules_memory[name] = df
     return df
@@ -82,6 +93,7 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
             if len(remaining) <= 1:
                 break
             remaining = remaining[:-1]
+    _record_nflverse(df)
     df.to_csv(path, index=False)
     _weekly_stats_memory[name] = df
     return df
@@ -120,6 +132,7 @@ def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.
             if len(remaining) <= 1:
                 break
             remaining = remaining[:-1]
+    _record_nflverse(df)
     df.to_csv(path, index=False)
     _team_game_stats_memory[name] = df
     return df
@@ -140,5 +153,6 @@ def load_rosters(seasons: list[int], force_refresh: bool = False) -> pd.DataFram
     if not force_refresh and os.path.exists(path):
         return pd.read_csv(path, low_memory=False)
     df = nfl.load_rosters(seasons).to_pandas()
+    _record_nflverse(df)
     df.to_csv(path, index=False)
     return df

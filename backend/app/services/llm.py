@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.config import settings
+from app.data.job_status import record_job_run
 
 logger = logging.getLogger(__name__)
 
@@ -216,8 +217,9 @@ def _call_anthropic_structured(
             tool_choice={"type": "tool", "name": tool["name"]},
             messages=[{"role": "user", "content": user_message}],
         )
-    except Exception:
+    except Exception as exc:
         logger.error("Anthropic API call failed; returning stub", exc_info=True)
+        record_job_run("llm_call", ok=False, error=f"Anthropic API call failed: {exc}")
         return {"verdict": "AGREE", "explain": _STUB_EXPLAIN, "flag": None}
 
     tool_block = next(
@@ -226,9 +228,11 @@ def _call_anthropic_structured(
     )
     if tool_block is None:
         logger.error("No tool_use block in LLM response; returning stub")
+        record_job_run("llm_call", ok=False, error="No tool_use block in LLM response")
         return {"verdict": "AGREE", "explain": _STUB_EXPLAIN, "flag": None}
 
     data = tool_block.input
+    record_job_run("llm_call", ok=True)
     return {
         "verdict": data.get("verdict", "AGREE"),
         "explain": data.get("explain", _STUB_EXPLAIN),

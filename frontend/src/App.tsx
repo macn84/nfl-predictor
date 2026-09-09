@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { pageview } from './analytics'
 import { brand } from './branding/config'
+import { JobsModal } from './components/JobsModal/JobsModal'
 import { ProtectedRoute } from './components/ProtectedRoute/ProtectedRoute'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { GameDetail } from './pages/GameDetail/GameDetail'
@@ -19,6 +20,8 @@ function RouteTracker() {
 
 function NavBar() {
   const { isAuthenticated, username, logout } = useAuth()
+  // Controls the background-job status popup (logged-in only).
+  const [jobsOpen, setJobsOpen] = useState(false)
 
   return (
     <nav className="bg-app-bg2 border-b-2 border-app-green px-6 flex items-stretch">
@@ -60,11 +63,18 @@ function NavBar() {
           <>
             <span className="text-app-muted text-xs font-mono">{username}</span>
             <button
+              onClick={() => setJobsOpen(true)}
+              className="text-app-muted hover:text-app-green text-xs font-semibold px-3 py-1 border border-app-border hover:border-app-green rounded transition-colors uppercase tracking-wider"
+            >
+              Jobs
+            </button>
+            <button
               onClick={logout}
               className="text-app-muted hover:text-app-green text-xs font-semibold px-3 py-1 border border-app-border hover:border-app-green rounded transition-colors uppercase tracking-wider"
             >
               Logout
             </button>
+            <JobsModal open={jobsOpen} onClose={() => setJobsOpen(false)} />
           </>
         ) : (
           <Link

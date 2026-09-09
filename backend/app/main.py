@@ -18,6 +18,7 @@ from app.api import (
     covers,
     frontend_config,
     game_refresh,
+    job_status,
     llm,
     lock,
     predictions,
@@ -64,3 +65,4 @@ app.include_router(accuracy.router)
 app.include_router(cover_accuracy.router)
 app.include_router(scheduler_api.router)
 app.include_router(llm.router)
+app.include_router(job_status.router)

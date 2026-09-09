@@ -19,6 +19,7 @@ COVER_CONFIDENCE_SCALE = 2.5
 
 import pandas as pd
 
+from app.data.job_status import status_tracked
 from app.data.loader import load_schedules, load_team_game_stats
 from app.data.spreads import get_spread
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
@@ -195,6 +196,7 @@ def _run_factors(
     return _normalize_weights(overridden)
 
 
+@status_tracked("prediction_model")
 def predict(
     home_team: str,
     away_team: str,
@@ -244,6 +246,7 @@ def predict(
     )
 
 
+@status_tracked("prediction_model")
 def predict_cover(
     home_team: str,
     away_team: str,

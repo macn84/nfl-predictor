@@ -35,6 +35,7 @@ from typing import Any, Optional
 import requests
 
 from app.config import settings
+from app.data.job_status import record_job_run
 from app.data.spreads import get_spread, is_historical
 from app.prediction.models import FactorResult
 
@@ -297,6 +298,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
                 logger.info("OddspaPI: fetched %d fixtures via %s", len(data), bookmaker)
             else:
                 logger.info("OddspaPI: no fixtures for %s (off-season?)", bookmaker)
+            record_job_run("odds_api", ok=True)
             return _oddspapi_cache
         except Exception as exc:
             logger.warning(
@@ -314,6 +316,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
         "OddspaPI: all bookmakers failed — falling back to The Odds API for %d min",
         _ERROR_RETRY_SECONDS // 60,
     )
+    record_job_run("odds_api", ok=False, error="OddspaPI: all bookmakers failed")
     return None
 
 
@@ -484,10 +487,12 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
         resp.raise_for_status()
         _odds_cache = resp.json()
         _odds_cache_ts = time.time()
+        record_job_run("odds_api", ok=True)
         return _odds_cache
     except Exception as exc:
         msg = str(exc).replace(settings.odds_api_key or "", "***")
         logger.warning("The Odds API fetch failed: %s", msg)
+        record_job_run("odds_api", ok=False, error=f"The Odds API fetch failed: {msg}")
         return None
 
 

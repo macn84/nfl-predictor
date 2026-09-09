@@ -140,3 +140,20 @@ export interface AccuracyResponse {
   by_week: WeekAccuracy[]
   by_tier: TierAccuracy[]
 }
+
+/**
+ * Last-run status of a single background job, as returned by GET /api/v1/jobs.
+ * Powers the header "Jobs" popup. Only the most recent run is kept server-side.
+ */
+export interface JobStatus {
+  /** Stable machine key, e.g. "odds_api". */
+  key: string
+  /** Human-readable job name for display. */
+  label: string
+  /** ISO-8601 UTC timestamp of the last run, or null if it has never run. */
+  last_run: string | null
+  /** "ok" = last run succeeded, "error" = last run failed, "never" = not yet run. */
+  status: 'ok' | 'error' | 'never'
+  /** Error text for the last run when status is "error"; otherwise null. */
+  error: string | null
+}

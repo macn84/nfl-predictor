@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from app.config import settings
+from app.data.job_status import track_job
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,8 @@ def _load_pbp_for_season(season: int) -> pd.DataFrame:
     else:
         # Download from nflverse.
         logger.info("Downloading PBP data for season %d", season)
-        df = nfl.load_pbp([season]).to_pandas()
+        with track_job("nflverse"):
+            df = nfl.load_pbp([season]).to_pandas()
         os.makedirs(settings.cache_dir, exist_ok=True)
         df.to_parquet(path, index=False)
         logger.info("Saved PBP %d to %s", season, path)
