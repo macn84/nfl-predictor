@@ -57,6 +57,15 @@ Two separate JSON caches in `data/`:
 - `score_cache.json` / `score_cache_full_history.json` — 6 winner factors (used by winner backtest and `optimise_weights.py`)
 - `cover_score_cache.json` / `cover_score_cache_full_history.json` — 7 cover factors (used by cover backtest and `optimise_cover_weights.py`)
 
+### Other `data/` stores
+- `job_status.json` — last-run status of background jobs (odds / weather / LLM / nflverse / prediction model). Best-effort JSON, no history; each run overwrites. Powers `GET /api/v1/jobs` and the header "Jobs" popup. Instrument via `app.data.job_status`: `track_job("key")` context manager, `@status_tracked("key")` decorator, or `record_job_run("key", ok=, error=)`. Job keys are the fixed registry in `JOBS`. Instrumentation must never raise into the caller — all writes swallow their own errors.
+- `weather_forecast_cache.json` — cached Open-Meteo predicted weather for game cards (`app.data.weather_cache.get_game_weather_cached`). Display-only. `dome`/`archive` entries never expire; `forecast` entries expire after `weather_cache_ttl_hours`; errors are not cached. Pre-warmed by `run_scheduled_refresh()` when `weather_forecast_enabled`.
+
+### Two independent weather paths — do not merge
+- **Scoring**: `prediction/factors/weather_factor.py`, reads nflverse schedule columns, disabled by default (`weight_weather = 0.0`).
+- **Display**: `data/weather_cache.py` → `data/weather.py` (Open-Meteo), attaches a predicted-weather block to prediction API responses. Gated by `weather_forecast_enabled`.
+These share no code and no config keys. Changing one does not affect the other.
+
 ### Weight override in `_run_factors()`
 Factors return `supporting_data["skipped"]=True` → always weight=0 regardless of profile. Factors with weight=0 in winner settings CAN have non-zero weight in cover profile. Do not simplify this — the two cases are intentionally different.
 
@@ -72,6 +81,9 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `backend/app/data/cache.py` | Score cache load/write; `apply_weights()`; `load_cover_score_cache(allow_fallback=)` |
 | `backend/app/config.py` | All settings, both weight profiles, all calibration constants |
 | `backend/app/api/game_refresh.py` | Per-game manual refresh `POST /predictions/{week}/{game_id}/refresh` |
+| `backend/app/data/job_status.py` | Background-job last-run tracker; `track_job` / `status_tracked` / `record_job_run` |
+| `backend/app/api/job_status.py` | `GET /api/v1/jobs` — job status for the header "Jobs" popup |
+| `backend/app/data/weather_cache.py` | On-disk cache for display-only predicted weather (`weather_forecast_cache.json`) |
 | `backend/app/api/utils.py` | Shared API helpers — `_game_id(home, away)` canonical game ID |
 | `backend/app/api/cover_accuracy.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `backend/app/api/covers.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
@@ -101,6 +113,8 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
   `_find_oddspapi_spread` and `_find_live_spread` both return 5-tuples.
 - Pre-existing E501 violations in `betting_lines.py:152,176` and `pbp_stats.py` — do not fix
   unless those lines are directly in scope.
+- **Open-Meteo Forecast API**: passing `forecast_days` alongside an explicit `start_date`/`end_date`
+  range returns HTTP 400. Send only the date range for forecast lookups (`data/weather.py`).
 - **LLM background task + Cloudflare**: GET `/api/v1/llm/{week}` must have `Cache-Control: no-store`
   and poll requests must use `?_t={Date.now()}` to bust the CDN. Without this, Cloudflare serves
   the initial empty response for all polls.
