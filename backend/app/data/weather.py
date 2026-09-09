@@ -5,7 +5,8 @@ Resolves game-time weather for a given stadium and datetime. Dome/indoor
 games are returned as WeatherCondition.DOME without any API call.
 
 Historical data:  Open-Meteo Archive API (free, no key, back to 1940)
-Forecast data:    Open-Meteo Forecast API (free, no key, up to 16 days ahead)
+Forecast data:    Open-Meteo Forecast API (free, no key, ~15 days ahead; games
+                  beyond that horizon return an empty "unknown" result)
 
 CSV expected at: data/nfl_stadiums.csv
 Teams that have relocated (LAR, MIN, LV, LAC, ATL, ...) have multiple rows;
@@ -24,6 +25,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -37,6 +39,11 @@ STADIUMS_CSV = DATA_DIR / "nfl_stadiums.csv"
 # Open-Meteo endpoints
 _ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# The Forecast API only serves dates within roughly 15 days of "today"; a request
+# for a date beyond that window is rejected with HTTP 400 ("start_date is out of
+# allowed range"). Games further out simply have no forecast yet — not an error.
+_FORECAST_HORIZON_DAYS = 15
 
 # WMO weather code → WeatherCondition mapping
 # https://open-meteo.com/en/docs#weathervariables
@@ -269,6 +276,31 @@ def _build_game_weather(
     )
 
 
+def _unknown_weather(stadium: StadiumRecord, source: str) -> GameWeather:
+    """Build a no-data GameWeather for an outdoor stadium.
+
+    Used when a forecast is unavailable (game beyond the forecast horizon) or a
+    lookup failed. ``source`` distinguishes the two: ``"forecast"`` means "no
+    data yet, try again later"; ``"error"`` means the request actually failed.
+
+    Args:
+        stadium: The resolved stadium record (for the display name).
+        source: Provenance tag stored on the returned object.
+
+    Returns:
+        A GameWeather with ``condition=UNKNOWN`` and all numeric fields ``None``.
+    """
+    return GameWeather(
+        condition=WeatherCondition.UNKNOWN,
+        temperature_c=None,
+        temperature_f=None,
+        wind_speed_kph=None,
+        is_dome=False,
+        stadium=stadium.stadium_name,
+        source=source,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -286,7 +318,9 @@ def get_game_weather(
 
     Dome games are resolved immediately without any network call.
     Past games use the Open-Meteo Archive API.
-    Future/upcoming games use the Open-Meteo Forecast API (up to 16 days ahead).
+    Future/upcoming games use the Open-Meteo Forecast API. Games more than
+    ``_FORECAST_HORIZON_DAYS`` out are outside that API's range, so an empty
+    ``condition=UNKNOWN`` result (``source="forecast"``) is returned instead.
 
     Args:
         home_team: Home team abbreviation — determines the stadium.
@@ -334,6 +368,16 @@ def get_game_weather(
         url    = _ARCHIVE_URL
         source = "archive"
     else:
+        # A game beyond the forecast horizon has no prediction yet. Return an
+        # empty result quietly — a later scheduled refresh backfills it once the
+        # game enters the window. This is expected, so it is not logged or
+        # recorded as an API failure.
+        if (game_date - today).days > _FORECAST_HORIZON_DAYS:
+            logger.debug(
+                "%s on %s is beyond the %d-day forecast horizon; no weather yet",
+                home_team, game_date, _FORECAST_HORIZON_DAYS,
+            )
+            return _unknown_weather(stadium, "forecast")
         # NB: the Forecast API rejects `forecast_days` when an explicit
         # start_date/end_date range is given (HTTP 400) — pass only the range.
         params = {
@@ -344,30 +388,30 @@ def get_game_weather(
         url    = _FORECAST_URL
         source = "forecast"
 
+    def _record_failure(exc: Exception) -> GameWeather:
+        """Log the failure, mark the job unhealthy, and return an empty result."""
+        logger.error("Open-Meteo request failed: %s", exc)
+        record_job_run("weather_api", ok=False, error=f"Open-Meteo request failed: {exc}")
+        return _unknown_weather(stadium, "error")
+
     for attempt in range(2):
         try:
             data = _fetch_json(url, params)
             weather = _build_game_weather(data, stadium, game_datetime, source)
             record_job_run("weather_api", ok=True)
             return weather
+        except HTTPError as exc:
+            # 4xx is a deterministic client error (bad params, date out of
+            # range) — retrying the identical request just fails the same way.
+            if 400 <= exc.code < 500 or attempt == 1:
+                return _record_failure(exc)
+            logger.warning("Open-Meteo request failed (%s), retrying...", exc)
+            time.sleep(retry_delay)
         except Exception as exc:
-            if attempt == 0:
-                logger.warning("Open-Meteo request failed (%s), retrying...", exc)
-                time.sleep(retry_delay)
-            else:
-                logger.error("Open-Meteo request failed after retry: %s", exc)
-                record_job_run(
-                    "weather_api", ok=False, error=f"Open-Meteo request failed: {exc}"
-                )
-                return GameWeather(
-                    condition=WeatherCondition.UNKNOWN,
-                    temperature_c=None,
-                    temperature_f=None,
-                    wind_speed_kph=None,
-                    is_dome=False,
-                    stadium=stadium.stadium_name,
-                    source="error",
-                )
+            if attempt == 1:
+                return _record_failure(exc)
+            logger.warning("Open-Meteo request failed (%s), retrying...", exc)
+            time.sleep(retry_delay)
 
 
 def get_game_weather_by_date(

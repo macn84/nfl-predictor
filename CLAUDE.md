@@ -115,6 +115,9 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
   unless those lines are directly in scope.
 - **Open-Meteo Forecast API**: passing `forecast_days` alongside an explicit `start_date`/`end_date`
   range returns HTTP 400. Send only the date range for forecast lookups (`data/weather.py`).
+  Also: the Forecast API only covers ~15 days out (`_FORECAST_HORIZON_DAYS`). `get_game_weather()`
+  short-circuits games beyond that to an empty `UNKNOWN`/`source="forecast"` result — no API call,
+  no job-status failure. HTTP 4xx from the API is not retried (deterministic).
 - **LLM background task + Cloudflare**: GET `/api/v1/llm/{week}` must have `Cache-Control: no-store`
   and poll requests must use `?_t={Date.now()}` to bust the CDN. Without this, Cloudflare serves
   the initial empty response for all polls.
