@@ -71,7 +71,21 @@ function formatSpread(team: string, spread: number): string {
 
 export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onAnalyzeGame, analyzingGame, onRefresh, refreshing }: GameCardProps) {
   const { isAuthenticated } = useAuth()
-  const { home_team, away_team, week, game_id, gameday } = game
+  const { home_team, away_team, week, game_id, gameday, weather } = game
+
+  // Minimal predicted-weather label: "Dome", or "46°F · 12 mph wind".
+  // Rendered only when the backend attached a weather block (upcoming games
+  // within Open-Meteo's ~16-day forecast window, or past games via archive).
+  const weatherLabel = !weather
+    ? null
+    : weather.is_dome
+      ? 'Dome'
+      : [
+          weather.temp_f != null ? `${Math.round(weather.temp_f)}°F` : null,
+          weather.wind_mph != null ? `${Math.round(weather.wind_mph)} mph wind` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null
   const [locked, setLocked] = useState(game.locked)
   const [locking, setLocking] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -121,6 +135,11 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
                 month: 'short',
                 day: 'numeric',
               })}
+            </div>
+          )}
+          {weatherLabel && (
+            <div className="text-xs text-app-dim mt-0.5 font-mono" title="Predicted game-time weather">
+              {weatherLabel}
             </div>
           )}
         </div>

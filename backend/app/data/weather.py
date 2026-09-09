@@ -332,11 +332,12 @@ def get_game_weather(
         url    = _ARCHIVE_URL
         source = "archive"
     else:
+        # NB: the Forecast API rejects `forecast_days` when an explicit
+        # start_date/end_date range is given (HTTP 400) — pass only the range.
         params = {
             **base_params,
             "start_date": game_date.isoformat(),
             "end_date":   game_date.isoformat(),
-            "forecast_days": 1,
         }
         url    = _FORECAST_URL
         source = "forecast"

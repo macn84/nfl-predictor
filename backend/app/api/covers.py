@@ -18,6 +18,7 @@ from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache
 from app.data.loader import load_schedules
+from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
 from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict_cover
 from app.prediction.models import CoverPredictionResult, FactorResult
@@ -47,6 +48,7 @@ class GameCoverPrediction(BaseModel):
     locked: bool  # True when prediction is the official prediction of record
     home_juice: int | None = None  # American odds for home team spread (e.g. -110)
     away_juice: int | None = None  # American odds for away team spread (e.g. -110)
+    weather: GameWeatherOut | None = None  # predicted game-time weather (display only)
 
 
 class WeekCoversResponse(BaseModel):
@@ -150,6 +152,12 @@ def _cover_week_games(
             factors = pred.factors if authenticated else []
             locked = False
 
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+
         results.append(
             GameCoverPrediction(
                 game_id=_game_id(home, away),
@@ -166,6 +174,7 @@ def _cover_week_games(
                 locked=locked,
                 home_juice=home_juice,
                 away_juice=away_juice,
+                weather=weather,
             )
         )
     return results
@@ -240,6 +249,11 @@ def get_game_cover(
             home, away, season, schedules=schedules, game_date=game_date
         )
         bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
         return GameCoverPrediction(
             game_id=game_id,
             season=season,
@@ -255,6 +269,7 @@ def get_game_cover(
             locked=locked,
             home_juice=bl.supporting_data.get("home_juice") if bl else None,
             away_juice=bl.supporting_data.get("away_juice") if bl else None,
+            weather=weather,
         )
     raise HTTPException(
         status_code=404,

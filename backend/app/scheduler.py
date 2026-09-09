@@ -28,6 +28,7 @@ from app.data import accuracy_cache
 from app.data.cache import apply_opening_spread, load_score_cache, write_score_cache
 from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
 from app.data.spreads import get_spread
+from app.data.weather_cache import get_game_weather_cached
 from app.prediction.engine import predict
 from app.services.llm import evict_llm_response
 
@@ -306,6 +307,13 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             continue
         cache_key = f"{home}-{away}-{game_date}"
         is_current_week = current_week is not None and row.get("week") == current_week
+
+        # Pre-warm the predicted-weather cache so API requests never block on
+        # Open-Meteo. Best-effort; failures are swallowed inside the helper.
+        # Current-week games force a re-fetch to match the fresh-odds refresh.
+        if settings.weather_forecast_enabled:
+            get_game_weather_cached(home, game_date, force=is_current_week)
+
         old_opening_spread: float | None = None
         old_opening_spread_ts: str | None = None
         if is_current_week:

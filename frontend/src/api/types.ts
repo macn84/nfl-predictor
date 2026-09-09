@@ -6,6 +6,14 @@ export interface FactorResult {
   supporting_data: Record<string, unknown>
 }
 
+export interface GameWeather {
+  condition: string // dome | sunny | overcast | rain | snow | unknown
+  temp_f: number | null // null for dome games
+  wind_mph: number | null // null for dome games
+  is_dome: boolean
+  source: string // dome | archive | forecast | cache
+}
+
 export interface GamePrediction {
   game_id: string
   season: number
@@ -20,6 +28,7 @@ export interface GamePrediction {
   refreshable: boolean // True for upcoming games that can be manually re-predicted
   home_ml_juice: number | null // American odds for home team moneyline (e.g. -145)
   away_ml_juice: number | null // American odds for away team moneyline (e.g. +125)
+  weather?: GameWeather | null // predicted game-time weather (display only)
 }
 
 export interface WeekSummary {
@@ -54,6 +63,7 @@ export interface GameCoverPrediction {
   locked: boolean
   home_juice: number | null // American odds for home team spread (e.g. -110)
   away_juice: number | null // American odds for away team spread (e.g. -110)
+  weather?: GameWeather | null // predicted game-time weather (display only)
 }
 
 export interface WeekCoversResponse {

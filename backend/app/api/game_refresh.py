@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import app.prediction.factors.betting_lines as _bl
 from app.api.utils import _game_id
 from app.auth.deps import get_current_user
+from app.config import settings
 from app.scheduler import _parse_gameday
 from app.data.cache import (
     load_cover_score_cache,
@@ -26,6 +27,7 @@ from app.data.cache import (
 )
 from app.data.loader import load_schedules
 from app.data.spreads import get_spread
+from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
 from app.services.llm import evict_llm_response
@@ -54,6 +56,7 @@ class GameRefreshResponse(BaseModel):
     refreshable: bool = True
     home_ml_juice: int | None = None
     away_ml_juice: int | None = None
+    weather: GameWeatherOut | None = None  # predicted game-time weather (display only)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +188,14 @@ def refresh_game_prediction(
     # for this game — evict it so a stale analysis isn't served as current.
     evict_llm_response(season, week, game_id)
 
+    # force=True: the ↺ button exists to pull genuinely fresh data, so bypass
+    # any cached forecast entry for this game.
+    weather = (
+        get_game_weather_cached(home, game_date, force=True)
+        if settings.weather_forecast_enabled
+        else None
+    )
+
     return GameRefreshResponse(
         game_id=game_id,
         season=season,
@@ -199,4 +210,5 @@ def refresh_game_prediction(
         refreshable=True,
         home_ml_juice=home_juice,
         away_ml_juice=away_juice,
+        weather=weather,
     )

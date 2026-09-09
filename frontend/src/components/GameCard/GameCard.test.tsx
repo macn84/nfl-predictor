@@ -2,17 +2,22 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthProvider } from '../../context/AuthContext'
 import { fixtureGame } from '../../test/fixtures'
+import type { GamePrediction } from '../../api/types'
 import { GameCard, computeKelly } from './GameCard'
 import { describe, it, expect } from 'vitest'
 
-function renderCard() {
+function renderWithGame(game: GamePrediction) {
   return render(
     <AuthProvider>
       <MemoryRouter>
-        <GameCard game={fixtureGame} mode="predictions" season={2024} />
+        <GameCard game={game} mode="predictions" season={2024} />
       </MemoryRouter>
     </AuthProvider>,
   )
+}
+
+function renderCard() {
+  return renderWithGame(fixtureGame)
 }
 
 describe('GameCard', () => {
@@ -36,6 +41,39 @@ describe('GameCard', () => {
     renderCard()
     // No token in localStorage → unauthenticated → card is a div, not a link
     expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('shows no weather line when the game has no weather block', () => {
+    renderCard()
+    expect(screen.queryByTitle('Predicted game-time weather')).toBeNull()
+  })
+
+  it('renders predicted temperature and wind for an outdoor game', () => {
+    renderWithGame({
+      ...fixtureGame,
+      weather: {
+        condition: 'snow',
+        temp_f: 45.6,
+        wind_mph: 12.4,
+        is_dome: false,
+        source: 'forecast',
+      },
+    })
+    expect(screen.getByText('46°F · 12 mph wind')).toBeInTheDocument()
+  })
+
+  it('renders "Dome" for a dome game', () => {
+    renderWithGame({
+      ...fixtureGame,
+      weather: {
+        condition: 'dome',
+        temp_f: null,
+        wind_mph: null,
+        is_dome: true,
+        source: 'dome',
+      },
+    })
+    expect(screen.getByText('Dome')).toBeInTheDocument()
   })
 })
 

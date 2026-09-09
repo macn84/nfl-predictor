@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     weight_coaching_matchup: float = 0.0         # disabled by default; set in backend/.env
     weight_weather: float = 0.0                  # disabled by default; set in backend/.env
 
+    # Predicted-weather display — independent of the weight_weather scoring above.
+    # Open-Meteo forecast/archive lookup, cached to data/weather_forecast_cache.json.
+    weather_forecast_enabled: bool = True        # attach predicted weather to game cards
+    weather_cache_ttl_hours: int = 6             # re-fetch forecast entries older than this
+
     # Cover mode weights — override in backend/.env to keep tuned values private.
     # Defaults here give equal weight to all factors so the app runs without .env.
     cover_weight_form: float = 1.0

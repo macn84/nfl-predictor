@@ -19,6 +19,7 @@ from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.data.cache import apply_weights, load_score_cache, lock_game_to_cache
 from app.data.loader import load_schedules
+from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
 from app.services.llm import evict_llm_response
@@ -60,6 +61,7 @@ class GamePrediction(BaseModel):
     refreshable: bool = False  # True for upcoming games that can be manually re-predicted
     home_ml_juice: int | None = None  # American odds for home team moneyline (e.g. -145)
     away_ml_juice: int | None = None  # American odds for away team moneyline (e.g. +125)
+    weather: GameWeatherOut | None = None  # predicted game-time weather (display only)
 
 
 class WeekPredictionsResponse(BaseModel):
@@ -164,6 +166,12 @@ def _predict_week_games(
                 home_ml_juice = bl.supporting_data.get("home_ml_juice")
                 away_ml_juice = bl.supporting_data.get("away_ml_juice")
 
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+
         results.append(
             GamePrediction(
                 game_id=_game_id(home, away),
@@ -179,6 +187,7 @@ def _predict_week_games(
                 refreshable=not is_completed,
                 home_ml_juice=home_ml_juice,
                 away_ml_juice=away_ml_juice,
+                weather=weather,
             )
         )
     return results
@@ -288,6 +297,11 @@ def get_game_prediction(
         locked = in_cache and not is_completed
 
         pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
         return GamePrediction(
             game_id=game_id,
             season=season,
@@ -300,6 +314,7 @@ def get_game_prediction(
             factors=pred.factors,
             locked=locked,
             refreshable=not is_completed,
+            weather=weather,
         )
 
     raise HTTPException(
