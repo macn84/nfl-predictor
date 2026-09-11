@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AccuracyResponse, FrontendConfig, GamePrediction, RefreshResponse, SchedulerJobStatus, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
+import type { AccuracyResponse, FrontendConfig, GameCoverPrediction, GamePrediction, RefreshResponse, SchedulerJobStatus, WeekCoversResponse, WeekPredictionsResponse, WeeksResponse } from './types'
 
 export async function fetchWeeks(season: number): Promise<WeeksResponse> {
   return apiFetch<WeeksResponse>(`/api/v1/weeks?season=${season}`)
@@ -22,6 +22,14 @@ export async function fetchGamePrediction(
 
 export async function fetchWeekCovers(season: number, week: number): Promise<WeekCoversResponse> {
   return apiFetch<WeekCoversResponse>(`/api/v1/covers/${week}?season=${season}`)
+}
+
+export async function fetchGameCoverPrediction(
+  season: number,
+  week: number,
+  gameId: string,
+): Promise<GameCoverPrediction> {
+  return apiFetch<GameCoverPrediction>(`/api/v1/covers/${week}/${gameId}?season=${season}`)
 }
 
 export async function triggerRefresh(season: number): Promise<RefreshResponse> {

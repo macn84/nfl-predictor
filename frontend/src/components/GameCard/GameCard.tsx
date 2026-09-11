@@ -284,7 +284,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
     <>
       {isAuthenticated ? (
         <Link
-          to={`/game/${week}/${game_id}?season=${season}`}
+          to={`/game/${week}/${game_id}?season=${season}&mode=${mode}`}
           className="block bg-app-surface rounded-lg p-4 hover:bg-app-surface2 hover:ring-1 hover:ring-app-green border border-app-border transition-all"
         >
           {cardContent}

@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
-import { fetchGamePrediction } from '../api/predictions'
-import type { GamePrediction } from '../api/types'
+import { fetchGameCoverPrediction, fetchGamePrediction } from '../api/predictions'
+import type { GameCoverPrediction, GamePrediction } from '../api/types'
+import type { PredictionMode } from '../pages/WeeklyDashboard/WeeklyDashboard'
 
 interface UseGameDetailResult {
-  data: GamePrediction | null
+  data: GamePrediction | GameCoverPrediction | null
   loading: boolean
   error: string | null
 }
 
-export function useGameDetail(season: number, week: number, gameId: string): UseGameDetailResult {
-  const [data, setData] = useState<GamePrediction | null>(null)
+export function useGameDetail(
+  season: number,
+  week: number,
+  gameId: string,
+  mode: PredictionMode,
+): UseGameDetailResult {
+  const [data, setData] = useState<GamePrediction | GameCoverPrediction | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -17,7 +23,8 @@ export function useGameDetail(season: number, week: number, gameId: string): Use
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchGamePrediction(season, week, gameId)
+    const fetcher = mode === 'covers' ? fetchGameCoverPrediction : fetchGamePrediction
+    fetcher(season, week, gameId)
       .then((resp) => {
         if (!cancelled) {
           setData(resp)
@@ -33,7 +40,7 @@ export function useGameDetail(season: number, week: number, gameId: string): Use
     return () => {
       cancelled = true
     }
-  }, [season, week, gameId])
+  }, [season, week, gameId, mode])
 
   return { data, loading, error }
 }

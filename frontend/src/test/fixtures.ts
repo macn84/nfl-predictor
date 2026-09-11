@@ -1,4 +1,4 @@
-import type { GamePrediction, WeekPredictionsResponse, WeeksResponse } from '../api/types'
+import type { GameCoverPrediction, GamePrediction, WeekPredictionsResponse, WeeksResponse } from '../api/types'
 
 export const fixtureGame: GamePrediction = {
   game_id: 'kc-buf',
@@ -41,6 +41,31 @@ export const fixtureGame: GamePrediction = {
       weight: 0.0,
       contribution: 0.0,
       supporting_data: { skipped: true, reason: 'no API key configured' },
+    },
+  ],
+}
+
+export const fixtureCoverGame: GameCoverPrediction = {
+  game_id: 'kc-buf',
+  season: 2024,
+  week: 1,
+  gameday: '2024-09-08',
+  home_team: 'KC',
+  away_team: 'BUF',
+  spread: 2.5,
+  predicted_margin: 5.1,
+  predicted_cover: 'KC',
+  cover_confidence: 64.2,
+  locked: false,
+  home_juice: -110,
+  away_juice: -110,
+  factors: [
+    {
+      name: 'success_rate',
+      score: 22.0,
+      weight: 0.2,
+      contribution: 4.4,
+      supporting_data: { home_success_rate: 0.48, away_success_rate: 0.44 },
     },
   ],
 }

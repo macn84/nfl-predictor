@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fixtureGame } from '../../test/fixtures'
+import { fixtureCoverGame, fixtureGame } from '../../test/fixtures'
 import { GameDetail } from './GameDetail'
 
 vi.mock('../../hooks/useGameDetail')
@@ -72,5 +72,18 @@ describe('GameDetail', () => {
     renderDetail()
     const backLink = screen.getByText(/← Week/)
     expect(backLink).toBeInTheDocument()
+  })
+
+  it('renders cover details, not the winner pick, when mode=covers', () => {
+    vi.mocked(useGameDetailModule.useGameDetail).mockReturnValue({
+      data: fixtureCoverGame,
+      loading: false,
+      error: null,
+    })
+    renderDetail('/game/1/kc-buf?season=2024&mode=covers')
+    expect(screen.getByText('Line:')).toBeInTheDocument()
+    expect(screen.getByText('KC -2.5')).toBeInTheDocument()
+    expect(screen.getByText('Cover:')).toBeInTheDocument()
+    expect(screen.queryByText('Pick:')).not.toBeInTheDocument()
   })
 })

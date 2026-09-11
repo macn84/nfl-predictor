@@ -1,20 +1,37 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import type { GameCoverPrediction, GamePrediction } from '../../api/types'
 import { ConfidenceBadge } from '../../components/ConfidenceBadge/ConfidenceBadge'
 import { FactorBar } from '../../components/FactorBar/FactorBar'
 import { useGameDetail } from '../../hooks/useGameDetail'
+import type { PredictionMode } from '../WeeklyDashboard/WeeklyDashboard'
+
+function formatSpread(team: string, spread: number): string {
+  if (spread === 0) return `${team} PK`
+  // `spread` is nflverse convention: positive = home favoured.
+  // Displayed as the classic "-3.5" style line, so it's negated for
+  // display only — never negate the stored value itself (see CLAUDE.md
+  // spread convention).
+  const display = -spread
+  return `${team} ${display > 0 ? '+' : ''}${display}`
+}
 
 export function GameDetail() {
   const { week, gameId } = useParams<{ week: string; gameId: string }>()
   const [searchParams] = useSearchParams()
   const season = Number(searchParams.get('season') ?? 2024)
+  const mode: PredictionMode = searchParams.get('mode') === 'covers' ? 'covers' : 'predictions'
   const weekNum = Number(week ?? 1)
   const gameIdStr = gameId ?? ''
 
-  const { data: game, loading, error } = useGameDetail(season, weekNum, gameIdStr)
+  const { data: game, loading, error } = useGameDetail(season, weekNum, gameIdStr, mode)
 
   if (loading) return <div className="text-app-muted p-4 font-mono">Loading…</div>
   if (error) return <div className="text-app-red p-4 font-mono">Error: {error}</div>
   if (!game) return null
+
+  const isCover = mode === 'covers'
+  const coverGame = game as GameCoverPrediction
+  const confidence = isCover ? coverGame.cover_confidence : game.confidence
 
   const activeFactors = game.factors.filter((f) => f.weight > 0)
   const skippedFactors = game.factors.filter((f) => f.weight === 0)
@@ -45,12 +62,36 @@ export function GameDetail() {
               </div>
             )}
           </div>
-          <ConfidenceBadge confidence={game.confidence} />
+          <ConfidenceBadge confidence={confidence} />
         </div>
-        <div className="mt-4 text-lg font-mono">
-          <span className="text-app-muted text-sm uppercase tracking-wider">Pick: </span>
-          <span className="font-bold text-app-green">{game.predicted_winner}</span>
-        </div>
+        {isCover ? (
+          <div className="mt-4 text-lg font-mono space-y-1">
+            {coverGame.spread !== null && (
+              <div>
+                <span className="text-app-muted text-sm uppercase tracking-wider">Line: </span>
+                <span className="font-bold text-white">
+                  {formatSpread(coverGame.home_team, coverGame.spread)}
+                </span>
+              </div>
+            )}
+            {coverGame.predicted_cover !== null && (
+              <div>
+                <span className="text-app-muted text-sm uppercase tracking-wider">Cover: </span>
+                <span className="font-bold text-app-green">{coverGame.predicted_cover}</span>
+                {coverGame.predicted_margin !== null && (
+                  <span className="text-app-dim text-sm ml-1">
+                    (by {Math.abs(coverGame.predicted_margin).toFixed(1)})
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 text-lg font-mono">
+            <span className="text-app-muted text-sm uppercase tracking-wider">Pick: </span>
+            <span className="font-bold text-app-green">{(game as GamePrediction).predicted_winner}</span>
+          </div>
+        )}
       </div>
 
       <div className="bg-app-surface border border-app-border rounded-lg p-6 mb-6">
