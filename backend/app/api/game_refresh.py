@@ -154,6 +154,8 @@ def refresh_game_prediction(
     bl_data = bl.supporting_data if bl else {}
     home_juice: int | None = bl_data.get("home_juice")
     away_juice: int | None = bl_data.get("away_juice")
+    home_ml_juice: int | None = bl_data.get("home_ml_juice")
+    away_ml_juice: int | None = bl_data.get("away_ml_juice")
     live_spread: float | None = (
         bl_data.get("home_team_spread")
         if bl and not bl_data.get("skipped") and bl_data.get("source", "").endswith("_live")
@@ -173,6 +175,8 @@ def refresh_game_prediction(
         "spread": spread,
         "home_juice": home_juice,
         "away_juice": away_juice,
+        "home_ml_juice": home_ml_juice,
+        "away_ml_juice": away_ml_juice,
         "live_spread": live_spread,
     }
     # Restore opening_spread if we had one before the eviction.
@@ -208,7 +212,7 @@ def refresh_game_prediction(
         factors=pred.factors,
         locked=False,
         refreshable=True,
-        home_ml_juice=home_juice,
-        away_ml_juice=away_juice,
+        home_ml_juice=home_ml_juice,
+        away_ml_juice=away_ml_juice,
         weather=weather,
     )

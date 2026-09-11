@@ -125,6 +125,8 @@ def _add_to_cache(
     bl_data = bl.supporting_data if bl else {}
     home_juice: int | None = bl_data.get("home_juice")
     away_juice: int | None = bl_data.get("away_juice")
+    home_ml_juice: int | None = bl_data.get("home_ml_juice")
+    away_ml_juice: int | None = bl_data.get("away_ml_juice")
     # live_spread: the spread currently quoted by the live API (not the historical CSV).
     # None for completed/historical games where betting_lines reads from CSV.
     live_spread: float | None = (
@@ -145,6 +147,8 @@ def _add_to_cache(
         "spread": spread,
         "home_juice": home_juice,
         "away_juice": away_juice,
+        "home_ml_juice": home_ml_juice,
+        "away_ml_juice": away_ml_juice,
         "live_spread": live_spread,
     }
     return True
