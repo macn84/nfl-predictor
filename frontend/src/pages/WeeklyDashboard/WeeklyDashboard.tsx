@@ -13,6 +13,7 @@ import { useLLM } from '../../hooks/useLLM'
 import { runScheduler, refreshGame, fetchSchedulerStatus } from '../../api/predictions'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
+import { buildPicksExport, downloadPicksJson } from '../../utils/exportPicks'
 
 const CURRENT_SEASON = 2026
 const AVAILABLE_SEASONS = [2021, 2022, 2023, 2024, 2025, 2026]
@@ -169,6 +170,15 @@ export function WeeklyDashboard() {
   const loading = mode === 'predictions' ? predictionsLoading : coversLoading
   const error = mode === 'predictions' ? predictionsError : coversError
 
+  // Exports the current week's picks (moneyline winner + spread cover) as a
+  // single JSON file for downstream systems/LLMs. Both datasets are always
+  // fetched above (predictions/covers hooks aren't gated by `mode`), so no
+  // extra network call is needed here.
+  function handleExportPicks() {
+    const rows = buildPicksExport(predictionsData?.games ?? [], coversData?.games ?? [])
+    downloadPicksJson(rows, season, selectedWeek)
+  }
+
   function handleWeekSelect(week: number) {
     setSearchParams({ season: String(season), week: String(week) })
   }
@@ -229,6 +239,14 @@ export function WeeklyDashboard() {
               Cover
             </button>
           </div>
+          <button
+            onClick={handleExportPicks}
+            disabled={predictionsLoading || coversLoading}
+            title="Download this week's moneyline + spread picks as JSON"
+            className="text-xs font-mono font-semibold px-3 py-1.5 rounded border border-app-border text-app-muted hover:text-white hover:border-app-green disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Export Picks
+          </button>
           {isAuthenticated && (
             <div className="flex items-center gap-2">
               <button
