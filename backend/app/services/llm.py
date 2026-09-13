@@ -124,10 +124,21 @@ def _format_top3_factors(factors: list[dict[str, Any]]) -> str:
 
 
 def _spread_text(game: dict[str, Any]) -> str:
+    """Render the home team's conventional (bookmaker-style) spread line.
+
+    `game["spread"]` is the engine convention: positive = home favoured
+    (see CLAUDE.md "Spread sign convention"). Bookmaker-style display is the
+    opposite — the favourite's own line is negative, the underdog's is
+    positive — so the home team's displayed line is the *negation* of the
+    stored spread. Printing the raw stored value here previously showed
+    underdogs as favourites and vice versa (e.g. a +3 underdog rendered as
+    "-3").
+    """
     spread = game.get("spread")
     if spread is None:
         return "(no line)"
-    return f"({game['home_team']} PK)" if spread == 0 else f"({game['home_team']} {spread:+.1f})"
+    home_line = -spread
+    return f"({game['home_team']} PK)" if home_line == 0 else f"({game['home_team']} {home_line:+.1f})"
 
 
 def _margin_text(game: dict[str, Any]) -> str:
