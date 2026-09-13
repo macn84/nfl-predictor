@@ -30,8 +30,9 @@ export function GameDetail() {
   if (!game) return null
 
   const isCover = mode === 'covers'
+  const coverGame = game as GameCoverPrediction
   const confidence = isCover
-    ? (game as GameCoverPrediction).cover_confidence
+    ? coverGame.cover_confidence
     : (game as GamePrediction).confidence
 
   const activeFactors = game.factors.filter((f) => f.weight > 0)
