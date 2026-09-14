@@ -41,7 +41,7 @@ export function GameDetail() {
   return (
     <div className="max-w-2xl mx-auto">
       <Link
-        to={`/?season=${season}&week=${weekNum}`}
+        to={`/?season=${season}&week=${weekNum}&mode=${mode}`}
         className="text-sm text-app-green hover:text-white mb-4 inline-block font-mono transition-colors"
       >
         ← Week {weekNum}

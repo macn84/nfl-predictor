@@ -40,7 +40,19 @@ export function WeeklyDashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const season = Number(searchParams.get('season') ?? CURRENT_SEASON)
   const [sortBy, setSortBy] = useState<SortOption>('confidence')
-  const [mode, setMode] = useState<PredictionMode>('predictions')
+  // `mode` lives in the URL (not local state) so it survives navigating into
+  // a GameCard's detail view and back — see GameDetail.tsx's back link.
+  const mode: PredictionMode = searchParams.get('mode') === 'covers' ? 'covers' : 'predictions'
+  const setMode = useCallback(
+    (next: PredictionMode) => {
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev)
+        params.set('mode', next)
+        return params
+      })
+    },
+    [setSearchParams],
+  )
   const [edgeOnly, setEdgeOnly] = useState(false)
   const [forceAnalysis, setForceAnalysis] = useState(false)
 
@@ -180,11 +192,11 @@ export function WeeklyDashboard() {
   }
 
   function handleWeekSelect(week: number) {
-    setSearchParams({ season: String(season), week: String(week) })
+    setSearchParams({ season: String(season), week: String(week), mode })
   }
 
   function handleSeasonSelect(newSeason: number) {
-    setSearchParams({ season: String(newSeason) })
+    setSearchParams({ season: String(newSeason), mode })
   }
 
   const noData = !weeksLoading && !weeksError && visibleWeeks.length === 0
