@@ -23,6 +23,7 @@ from app.api import (
     lock,
     predictions,
     refresh,
+    teasers,
 )
 from app.api import scheduler as scheduler_api
 from app.api.auth import _limiter
@@ -60,6 +61,7 @@ app.include_router(predictions.router)
 app.include_router(lock.router)
 app.include_router(game_refresh.router)
 app.include_router(covers.router)
+app.include_router(teasers.router)
 app.include_router(refresh.router)
 app.include_router(accuracy.router)
 app.include_router(cover_accuracy.router)

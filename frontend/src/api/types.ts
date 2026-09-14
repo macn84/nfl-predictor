@@ -76,6 +76,30 @@ export interface FrontendConfig {
   cover_edge_threshold: number
 }
 
+export interface TeaserLeg {
+  game_id: string
+  team: string
+  opponent: string
+  gameday: string
+  original_line: number // bookmaker-convention line before the tease
+  teased_line: number // bookmaker-convention line after the tease
+  confidence: number // model's cover confidence (0..100) at the teased line
+}
+
+export interface TeaserCombo {
+  team_count: number
+  legs: TeaserLeg[]
+  combined_probability: number // 0..1
+  breakeven_probability: number // 0..1, implied by the book's teaser odds
+  edge_pct: number // (combined_probability - breakeven_probability) * 100
+}
+
+export interface TeaserWeekResponse {
+  season: number
+  week: number
+  combos: TeaserCombo[]
+}
+
 export interface RefreshResponse {
   status: string
   season: number

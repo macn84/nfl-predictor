@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     # Default of 50 shows all picks; real value should be set via environment.
     cover_edge_threshold: int = 50
 
+    # Teaser alert sidebar — set in backend/.env (private) to keep the actual
+    # book odds and leg threshold out of the public repo. Defaults below leave
+    # the feature effectively inert (threshold of 100 never qualifies a leg)
+    # so the app runs safely with no private .env.
+    teaser_points: float = 6.0                # not book-specific; safe to default
+    teaser_leg_confidence_threshold: float = 100.0
+    teaser_two_team_odds: int = -110          # placeholder; real book price is private
+    teaser_three_team_odds: int = 100         # placeholder; real book price is private
+
     # OddspaPI — primary source for live betting lines (https://oddspapi.io/)
     # Requires ODDSPAPI_API_KEY in backend/.env. Tried first; falls back to The Odds API.
     oddspapi_api_key: str = ""

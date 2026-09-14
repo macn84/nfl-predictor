@@ -5,11 +5,13 @@ import { brand } from '../../branding/config'
 import { GameCard } from '../../components/GameCard/GameCard'
 import type { SortOption } from '../../components/SortFilterBar/SortFilterBar'
 import { SortFilterBar } from '../../components/SortFilterBar/SortFilterBar'
+import { TeaserSidebar } from '../../components/TeaserSidebar/TeaserSidebar'
 import { WeekSelector } from '../../components/WeekSelector/WeekSelector'
 import { useAuth } from '../../context/AuthContext'
 import { useConfig } from '../../hooks/useConfig'
 import { useCovers } from '../../hooks/useCovers'
 import { useLLM } from '../../hooks/useLLM'
+import { useTeasers } from '../../hooks/useTeasers'
 import { runScheduler, refreshGame, fetchSchedulerStatus } from '../../api/predictions'
 import { useWeeks } from '../../hooks/useWeeks'
 import { usePredictions } from '../../hooks/usePredictions'
@@ -161,6 +163,12 @@ export function WeeklyDashboard() {
     loading: coversLoading,
     error: coversError,
   } = useCovers(season, selectedWeek, refreshKey)
+
+  const {
+    data: teaserData,
+    loading: teaserLoading,
+    error: teaserError,
+  } = useTeasers(season, selectedWeek, isAuthenticated && mode === 'covers')
 
   const { responses: llmResponses, analyzing, analyzingGames, error: llmError, analyze, analyzeGame } = useLLM(
     season,
@@ -329,42 +337,49 @@ export function WeeklyDashboard() {
             <div className="text-app-red mb-4 font-mono text-sm">Error loading games: {error}</div>
           )}
 
-          {loading ? (
-            <div className="text-app-muted font-mono text-sm">Loading predictions…</div>
-          ) : mode === 'predictions' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedPredictions.map((game) => (
-                <GameCard
-                  key={game.game_id}
-                  game={game}
-                  mode="predictions"
-                  season={season}
-                  llm={llmResponses[game.game_id] ?? null}
-                  onAnalyzeGame={analyzeGame}
-                  analyzingGame={analyzingGames.has(game.game_id)}
-                  onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
-                  refreshing={refreshingGameId === game.game_id}
-                />
-              ))}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex-1 min-w-0">
+              {loading ? (
+                <div className="text-app-muted font-mono text-sm">Loading predictions…</div>
+              ) : mode === 'predictions' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {sortedPredictions.map((game) => (
+                    <GameCard
+                      key={game.game_id}
+                      game={game}
+                      mode="predictions"
+                      season={season}
+                      llm={llmResponses[game.game_id] ?? null}
+                      onAnalyzeGame={analyzeGame}
+                      analyzingGame={analyzingGames.has(game.game_id)}
+                      onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
+                      refreshing={refreshingGameId === game.game_id}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {sortedCovers.map((game) => (
+                    <GameCard
+                      key={game.game_id}
+                      game={game}
+                      mode="covers"
+                      season={season}
+                      edgeThreshold={config.cover_edge_threshold}
+                      llm={llmResponses[game.game_id] ?? null}
+                      onAnalyzeGame={analyzeGame}
+                      analyzingGame={analyzingGames.has(game.game_id)}
+                      onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
+                      refreshing={refreshingGameId === game.game_id}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedCovers.map((game) => (
-                <GameCard
-                  key={game.game_id}
-                  game={game}
-                  mode="covers"
-                  season={season}
-                  edgeThreshold={config.cover_edge_threshold}
-                  llm={llmResponses[game.game_id] ?? null}
-                  onAnalyzeGame={analyzeGame}
-                  analyzingGame={analyzingGames.has(game.game_id)}
-                  onRefresh={() => handleRefreshGame(game.game_id, selectedWeek)}
-                  refreshing={refreshingGameId === game.game_id}
-                />
-              ))}
-            </div>
-          )}
+            {isAuthenticated && mode === 'covers' && (
+              <TeaserSidebar combos={teaserData?.combos ?? []} loading={teaserLoading} error={teaserError} />
+            )}
+          </div>
         </>
       )}
     </div>
