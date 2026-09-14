@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from app.api.utils import _game_id
 from app.auth.deps import get_current_user, get_optional_user
 from app.config import settings
-from app.data.cache import apply_weights, load_score_cache
+from app.data.cache import apply_weights, load_cover_score_cache, load_score_cache
 from app.data.loader import load_schedules
 from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
@@ -68,6 +68,7 @@ def _cover_week_games(
     week: int,
     schedules: pd.DataFrame,
     score_cache: dict[str, dict] | None = None,
+    winner_cache: dict[str, dict] | None = None,
     authenticated: bool = False,
 ) -> list[GameCoverPrediction]:
     """Run the cover prediction engine for every game in a given week.
@@ -76,7 +77,12 @@ def _cover_week_games(
         season: NFL season year.
         week: Week number.
         schedules: Pre-loaded schedules DataFrame (must cover season-3..season).
-        score_cache: Pre-loaded score cache, or None to always call predict_cover().
+        score_cache: Pre-loaded 7-factor cover score cache (load_cover_score_cache()),
+                     or None to always call predict_cover().
+        winner_cache: Pre-loaded winner score cache (load_score_cache()), consulted
+                      only for the "locked" flag — locking always writes to
+                      score_cache.json, never to the cover cache, regardless of
+                      which mode was locked in.
         authenticated: Whether the caller has a valid auth token.
 
     Returns:
@@ -137,7 +143,12 @@ def _cover_week_games(
             home_juice = cached.get("home_juice")
             away_juice = cached.get("away_juice")
             factors: list[FactorResult] = []
-            locked = score_cache[cache_key].get("locked", False)  # only True when explicitly locked
+            # Locking always writes to the winner cache, never the cover cache —
+            # look the flag up there regardless of which cache served this entry.
+            locked = bool(
+                winner_cache and cache_key in winner_cache
+                and winner_cache[cache_key].get("locked", False)
+            )
         else:
             pred: CoverPredictionResult = predict_cover(
                 home, away, season, schedules=schedules, game_date=game_date
@@ -199,9 +210,20 @@ def get_week_covers(
     authenticated = current_user is not None
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)
-    score_cache = load_score_cache()
+    # Must be the 7-factor cover cache, not the 6-factor winner score_cache —
+    # apply_weights() below only sees keys present in the cache entry, so a
+    # winner-cache entry silently drops success_rate/market_signals/qb_matchup
+    # and produces an incomplete cover weighting (see cache.py docstring).
+    score_cache = load_cover_score_cache()
+    # locked state always lives in the winner cache — see _cover_week_games().
+    winner_cache = load_score_cache()
     games = _cover_week_games(
-        season, week, schedules, score_cache=score_cache, authenticated=authenticated
+        season,
+        week,
+        schedules,
+        score_cache=score_cache,
+        winner_cache=winner_cache,
+        authenticated=authenticated,
     )
     if not games:
         raise HTTPException(
