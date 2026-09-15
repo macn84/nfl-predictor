@@ -12,7 +12,7 @@ function formatLine(line: number): string {
 
 function TeaserLegRow({ leg }: { leg: TeaserLeg }) {
   return (
-    <div className="flex items-center justify-between text-xs font-mono">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 text-xs font-mono">
       <span className="text-app-text">
         {leg.team} <span className="text-app-muted">vs {leg.opponent}</span>
       </span>
@@ -55,7 +55,7 @@ function TeaserComboCard({ combo }: { combo: TeaserCombo }) {
  */
 export function TeaserSidebar({ combos, loading, error }: TeaserSidebarProps) {
   return (
-    <aside className="w-full lg:w-72 shrink-0 space-y-3">
+    <aside className="w-full md:w-72 shrink-0 space-y-3">
       <h2 className="font-display text-sm tracking-wider text-white uppercase">Teaser Alerts</h2>
       {loading && <div className="text-app-muted font-mono text-xs">Loading teasers…</div>}
       {error && <div className="text-app-red font-mono text-xs">{error}</div>}

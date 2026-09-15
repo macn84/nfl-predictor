@@ -41,7 +41,7 @@ function JobRow({ job }: { job: JobStatus }) {
 
   return (
     <li className="border-b border-app-border last:border-b-0 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <span
           className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold font-mono tracking-wider ${statusPillClass(
             job.status,
@@ -49,7 +49,7 @@ function JobRow({ job }: { job: JobStatus }) {
         >
           {statusLabel(job.status)}
         </span>
-        <span className="text-app-text text-sm font-semibold flex-1">{job.label}</span>
+        <span className="text-app-text text-sm font-semibold flex-1 min-w-[8rem]">{job.label}</span>
         <span className="text-app-muted text-xs font-mono">{formatLastRun(job.last_run)}</span>
         {hasError && (
           <button

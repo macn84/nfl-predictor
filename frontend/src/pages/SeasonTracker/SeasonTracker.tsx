@@ -12,8 +12,8 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
   return (
     <div className="space-y-6">
       {/* Overall accuracy card */}
-      <div className="bg-app-surface border border-app-border rounded-lg p-6 flex items-center gap-6">
-        <div className="font-display text-6xl text-app-green" style={{ textShadow: '0 0 20px rgba(0,200,81,0.4)' }}>
+      <div className="bg-app-surface border border-app-border rounded-lg p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+        <div className="font-display text-5xl sm:text-6xl text-app-green" style={{ textShadow: '0 0 20px rgba(0,200,81,0.4)' }}>
           {data.accuracy}%
         </div>
         <div>
@@ -30,8 +30,8 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
           <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
             Accuracy by Confidence Tier
           </h2>
-          <div className="bg-app-surface border border-app-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm min-w-[420px]">
               <thead>
                 <tr className="border-b border-app-border text-app-muted font-mono text-xs">
                   <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Confidence</th>
@@ -72,8 +72,8 @@ function AccuracyTables({ data, season }: { data: AccuracyResponse; season: numb
           <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
             Week-by-Week
           </h2>
-          <div className="bg-app-surface border border-app-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm min-w-[420px]">
               <thead>
                 <tr className="border-b border-app-border text-app-muted font-mono text-xs">
                   <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Week</th>
@@ -137,9 +137,9 @@ export function SeasonTracker() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+    <div className="max-w-3xl mx-auto px-1 sm:px-0">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex flex-wrap items-center gap-4">
           <h1 className="font-display text-3xl tracking-wider text-white">Season Accuracy</h1>
           <div className="flex rounded overflow-hidden border border-app-border text-sm font-mono">
             <button

@@ -212,7 +212,7 @@ export function WeeklyDashboard() {
   return (
     <div>
       {brand.dashboardHeader && (
-        <div className="mb-6 -mx-6 -mt-6">
+        <div className="mb-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6">
           <img
             src={brand.dashboardHeader.src}
             alt={brand.dashboardHeader.alt}
@@ -221,7 +221,7 @@ export function WeeklyDashboard() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
         <div className="flex items-center gap-3">
           <h1 className="font-display text-3xl tracking-wider text-white">
             Week {selectedWeek} <span className="text-app-muted text-xl">·</span>
@@ -236,7 +236,7 @@ export function WeeklyDashboard() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex rounded overflow-hidden border border-app-border text-sm font-mono">
             <button
               onClick={() => setMode('predictions')}
@@ -268,7 +268,7 @@ export function WeeklyDashboard() {
             Export Picks
           </button>
           {isAuthenticated && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => void analyze(forceAnalysis)}
                 disabled={analyzing}
@@ -337,7 +337,7 @@ export function WeeklyDashboard() {
             <div className="text-app-red mb-4 font-mono text-sm">Error loading games: {error}</div>
           )}
 
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 min-w-0">
               {loading ? (
                 <div className="text-app-muted font-mono text-sm">Loading predictions…</div>

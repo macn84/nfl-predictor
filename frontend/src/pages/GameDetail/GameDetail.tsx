@@ -39,7 +39,7 @@ export function GameDetail() {
   const skippedFactors = game.factors.filter((f) => f.weight === 0)
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto px-1 sm:px-0">
       <Link
         to={`/?season=${season}&week=${weekNum}&mode=${mode}`}
         className="text-sm text-app-green hover:text-white mb-4 inline-block font-mono transition-colors"
@@ -47,10 +47,10 @@ export function GameDetail() {
         ← Week {weekNum}
       </Link>
 
-      <div className="bg-app-surface border border-app-border rounded-lg p-6 mb-6">
-        <div className="flex justify-between items-start">
+      <div className="bg-app-surface border border-app-border rounded-lg p-4 sm:p-6 mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div>
-            <h1 className="font-display text-3xl tracking-wider text-white mb-1">
+            <h1 className="font-display text-2xl sm:text-3xl tracking-wider text-white mb-1">
               {game.away_team} @ {game.home_team}
             </h1>
             {game.gameday && (
@@ -96,7 +96,7 @@ export function GameDetail() {
         )}
       </div>
 
-      <div className="bg-app-surface border border-app-border rounded-lg p-6 mb-6">
+      <div className="bg-app-surface border border-app-border rounded-lg p-4 sm:p-6 mb-6">
         <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-4">
           Factor Breakdown
         </h2>
@@ -109,7 +109,7 @@ export function GameDetail() {
       </div>
 
       {activeFactors.some((f) => Object.keys(f.supporting_data).length > 0) && (
-        <div className="bg-app-surface border border-app-border rounded-lg p-6">
+        <div className="bg-app-surface border border-app-border rounded-lg p-4 sm:p-6">
           <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-4">
             Supporting Data
           </h2>

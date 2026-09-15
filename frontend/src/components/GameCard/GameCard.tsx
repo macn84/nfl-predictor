@@ -225,7 +225,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
           </p>
         )}
         {/* Footer row */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-app-dim italic font-mono">
             {isAuthenticated
               ? llm
@@ -301,7 +301,7 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
           onClick={() => setConfirmOpen(false)}
         >
           <div
-            className="bg-app-bg2 border border-app-border rounded-lg p-6 w-full max-w-sm space-y-4"
+            className="bg-app-bg2 border border-app-border rounded-lg p-4 sm:p-6 w-full max-w-sm space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-white font-semibold">Lock prediction?</h2>
