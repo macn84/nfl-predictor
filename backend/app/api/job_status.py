@@ -23,7 +23,7 @@ class JobStatusOut(BaseModel):
     """One job's most recent run.
 
     Attributes:
-        key: Stable machine key (e.g. ``"odds_api"``).
+        key: Stable machine key (e.g. ``"the_odds_api"``).
         label: Human-readable job name for display.
         last_run: UTC timestamp of the last run, or ``None`` if it has never run.
         status: ``"ok"`` | ``"error"`` | ``"never"``.

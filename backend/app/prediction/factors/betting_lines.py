@@ -61,7 +61,7 @@ _MAX_SPREAD = 14.0
 _CACHE_TTL_SECONDS = 30 * 60  # 30 minutes — lines move; don't serve stale for 6h
 
 # ---------------------------------------------------------------------------
-# OddspaPI — primary live source
+# OddspaPI — fallback live source
 # ---------------------------------------------------------------------------
 _ODDSPAPI_BASE = "https://api.oddspapi.io"
 
@@ -97,7 +97,7 @@ _oddspapi_error_until: float = 0.0
 _ERROR_RETRY_SECONDS = 30 * 60   # 30 minutes between retries after a quota/network failure
 
 # ---------------------------------------------------------------------------
-# The Odds API — fallback live source
+# The Odds API — primary live source
 # ---------------------------------------------------------------------------
 _ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 _SPORT_KEY = "americanfootball_nfl"
@@ -298,7 +298,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
                 logger.info("OddspaPI: fetched %d fixtures via %s", len(data), bookmaker)
             else:
                 logger.info("OddspaPI: no fixtures for %s (off-season?)", bookmaker)
-            record_job_run("odds_api", ok=True)
+            record_job_run("oddspapi", ok=True)
             return _oddspapi_cache
         except Exception as exc:
             logger.warning(
@@ -316,7 +316,7 @@ def _fetch_oddspapi() -> list[dict[str, Any]] | None:
         "OddspaPI: all bookmakers failed — falling back to The Odds API for %d min",
         _ERROR_RETRY_SECONDS // 60,
     )
-    record_job_run("odds_api", ok=False, error="OddspaPI: all bookmakers failed")
+    record_job_run("oddspapi", ok=False, error="OddspaPI: all bookmakers failed")
     return None
 
 
@@ -465,7 +465,7 @@ def _find_oddspapi_spread(
 
 
 # ---------------------------------------------------------------------------
-# The Odds API: fetching and parsing (fallback)
+# The Odds API: fetching and parsing (primary)
 # ---------------------------------------------------------------------------
 
 def _fetch_odds() -> list[dict[str, Any]] | None:
@@ -487,12 +487,12 @@ def _fetch_odds() -> list[dict[str, Any]] | None:
         resp.raise_for_status()
         _odds_cache = resp.json()
         _odds_cache_ts = time.time()
-        record_job_run("odds_api", ok=True)
+        record_job_run("the_odds_api", ok=True)
         return _odds_cache
     except Exception as exc:
         msg = str(exc).replace(settings.odds_api_key or "", "***")
         logger.warning("The Odds API fetch failed: %s", msg)
-        record_job_run("odds_api", ok=False, error=f"The Odds API fetch failed: {msg}")
+        record_job_run("the_odds_api", ok=False, error=f"The Odds API fetch failed: {msg}")
         return None
 
 
@@ -605,6 +605,17 @@ def calculate(
                 "source": "csv_closing_line",
                 "game_date": str(game_date),
             },
+        )
+
+    # --- Game already played, but no historical CSV covers it yet (e.g. the
+    # current season before nflverse publishes its closing-line dataset):
+    # sportsbooks pull the market once a game kicks off, so a live odds call
+    # can never succeed here. Skip instead of hitting the live APIs on every
+    # request for a finished game. ---
+    if game_date is not None and game_date < date.today():
+        return _skip(
+            f"{home_team} vs {away_team} on {game_date} already played and not yet "
+            "in the historical CSV; live odds markets are closed"
         )
 
     # --- Live: try The Odds API first, fall back to OddspaPI ---

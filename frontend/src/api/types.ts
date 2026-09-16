@@ -40,6 +40,7 @@ export interface WeekSummary {
 export interface WeeksResponse {
   season: number
   weeks: WeekSummary[]
+  current_week: number | null
 }
 
 export interface WeekPredictionsResponse {

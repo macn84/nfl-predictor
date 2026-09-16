@@ -42,7 +42,8 @@ _STATUS_PATH = Path(settings.cache_dir) / "job_status.json"
 # Ordered registry: job key -> human-readable label. ``GET /api/v1/jobs`` always
 # returns exactly one row per entry here, even for jobs that have never run.
 JOBS: tuple[tuple[str, str], ...] = (
-    ("odds_api", "Odds API fetch"),
+    ("the_odds_api", "The Odds API fetch"),
+    ("oddspapi", "OddspaPI fetch"),
     ("weather_api", "Weather API fetch"),
     ("llm_call", "LLM analysis call"),
     ("nflverse", "nflverse ingest"),

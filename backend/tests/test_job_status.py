@@ -34,15 +34,15 @@ def _row(rows: list[dict], key: str) -> dict:
 
 class TestRecordJobRun:
     def test_success_roundtrips_to_disk_and_state(self, status_file):
-        job_status.record_job_run("odds_api", ok=True)
+        job_status.record_job_run("the_odds_api", ok=True)
 
-        row = _row(job_status.load_job_status(), "odds_api")
+        row = _row(job_status.load_job_status(), "the_odds_api")
         assert row["status"] == "ok"
         assert row["error"] is None
         assert row["last_run"] is not None
 
         on_disk = json.loads(status_file.read_text())
-        assert on_disk["odds_api"]["status"] == "ok"
+        assert on_disk["the_odds_api"]["status"] == "ok"
 
     def test_error_stores_and_truncates_message(self, status_file):
         long_message = "boom " * 2000  # ~10k chars, over the 4k cap
@@ -121,7 +121,7 @@ class TestStatusTrackedDecorator:
 
 class TestJobsEndpoint:
     def test_returns_all_jobs_with_expected_shape(self, status_file):
-        job_status.record_job_run("odds_api", ok=True)
+        job_status.record_job_run("the_odds_api", ok=True)
 
         resp = client.get("/api/v1/jobs")
         assert resp.status_code == 200
@@ -129,8 +129,8 @@ class TestJobsEndpoint:
 
         rows = resp.json()
         assert [r["key"] for r in rows] == [key for key, _ in job_status.JOBS]
-        odds = _row(rows, "odds_api")
-        assert odds["label"] == "Odds API fetch"
+        odds = _row(rows, "the_odds_api")
+        assert odds["label"] == "The Odds API fetch"
         assert odds["status"] == "ok"
         assert odds["last_run"] is not None
         assert _row(rows, "weather_api")["status"] == "never"

@@ -7,6 +7,7 @@ GET /api/v1/predictions/{week}/{game_id}?season= — single game detail (auth re
 """
 
 import math
+import time
 from datetime import date, datetime, timezone
 from typing import Optional
 
@@ -22,9 +23,42 @@ from app.data.loader import load_schedules
 from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
+from app.scheduler import _current_week
 from app.services.llm import evict_llm_response
 
 router = APIRouter(prefix="/api/v1")
+
+# Cooldown between self-healing forced refreshes triggered by _load_schedules_healed,
+# so a broken upstream (nflverse down, etc.) can't turn every /weeks or /predictions
+# request into a re-download.
+_FORCE_REFRESH_COOLDOWN_SECONDS = 15 * 60
+_last_forced_schedule_refresh = 0.0
+
+
+def _load_schedules_healed(seasons: list[int]) -> pd.DataFrame:
+    """Load schedules, forcing one refresh if a past game still shows no score.
+
+    `load_schedules()` only re-downloads from nflverse when explicitly asked
+    (the cron scheduler or a manual /refresh call) — otherwise it serves the
+    on-disk CSV forever. If neither has run since a game finished, its score
+    stays cached as null and the week never flips to `completed`. This heals
+    that case without depending on the scheduler having run.
+    """
+    global _last_forced_schedule_refresh
+    schedules = load_schedules(seasons)
+    today = datetime.now(timezone.utc).date()
+    gameday = pd.to_datetime(schedules["gameday"], errors="coerce").dt.date
+    stale = (
+        gameday.notna()
+        & (gameday < today)
+        & (schedules["home_score"].isna() | schedules["away_score"].isna())
+    )
+    if stale.any():
+        now = time.monotonic()
+        if now - _last_forced_schedule_refresh >= _FORCE_REFRESH_COOLDOWN_SECONDS:
+            _last_forced_schedule_refresh = now
+            schedules = load_schedules(seasons, force_refresh=True)
+    return schedules
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +77,7 @@ class WeekSummary(BaseModel):
 class WeeksResponse(BaseModel):
     season: int
     weeks: list[WeekSummary]
+    current_week: int | None = None  # earliest incomplete week, or the last week if none
 
 
 class GamePrediction(BaseModel):
@@ -207,9 +242,14 @@ def list_weeks(
     Each week includes a `completed` flag — True when every game in the week
     has a recorded final score. Unauthenticated callers should filter to completed
     weeks only; the frontend enforces this via the auth context.
+
+    `current_week` is the earliest week that still has an incomplete game (the
+    same rule the scheduler uses to decide what to keep pre-caching) — the
+    frontend uses it, rather than array position, to pick sensible defaults:
+    public view defaults to `current_week - 1`, authenticated to `current_week`.
     """
     seasons = list(range(2015, season + 1))
-    schedules = load_schedules(seasons)
+    schedules = _load_schedules_healed(seasons)
     season_games = schedules[schedules["season"] == season]
     if season_games.empty:
         return WeeksResponse(season=season, weeks=[])
@@ -223,7 +263,8 @@ def list_weeks(
         weeks.append(WeekSummary(week=int(week_num), game_count=game_count, completed=completed))
 
     weeks.sort(key=lambda w: w.week)
-    return WeeksResponse(season=season, weeks=weeks)
+    current_week = _current_week(schedules, season)
+    return WeeksResponse(season=season, weeks=weeks, current_week=current_week)
 
 
 @router.get("/predictions/{week}", response_model=WeekPredictionsResponse)
@@ -240,7 +281,7 @@ def get_week_predictions(
     """
     authenticated = current_user is not None
     seasons = list(range(2015, season + 1))
-    schedules = load_schedules(seasons)
+    schedules = _load_schedules_healed(seasons)
     score_cache = load_score_cache()
     games = _predict_week_games(
         season, week, schedules,
@@ -267,6 +308,9 @@ def get_game_prediction(
 
     Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
     Always runs predict() live to return full supporting_data for the detail view.
+    For a completed game, betting_lines.calculate() itself skips any live odds
+    call once the game's date is in the past and not yet covered by the
+    historical CSV, so this no longer means a live odds-API hit on every load.
     """
     seasons = list(range(2015, season + 1))
     schedules = load_schedules(seasons)

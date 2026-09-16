@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import type { TeaserCombo } from '../../api/types'
 import { TeaserSidebar } from './TeaserSidebar'
 
@@ -31,23 +31,37 @@ const combo: TeaserCombo = {
 }
 
 describe('TeaserSidebar', () => {
-  it('shows an empty state when there are no combos', () => {
-    render(<TeaserSidebar combos={[]} loading={false} error={null} />)
+  it('shows a "Load Teasers" button before anything is requested, and does not fetch', () => {
+    render(<TeaserSidebar combos={[]} loading={false} error={null} requested={false} onRequest={() => {}} />)
+    expect(screen.getByRole('button', { name: /Load Teasers/i })).toBeInTheDocument()
+    expect(screen.queryByText(/No \+EV teasers this week/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Loading teasers/)).not.toBeInTheDocument()
+  })
+
+  it('calls onRequest when the Load Teasers button is clicked', () => {
+    const onRequest = vi.fn()
+    render(<TeaserSidebar combos={[]} loading={false} error={null} requested={false} onRequest={onRequest} />)
+    fireEvent.click(screen.getByRole('button', { name: /Load Teasers/i }))
+    expect(onRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an empty state when requested and there are no combos', () => {
+    render(<TeaserSidebar combos={[]} loading={false} error={null} requested={true} onRequest={() => {}} />)
     expect(screen.getByText(/No \+EV teasers this week/)).toBeInTheDocument()
   })
 
-  it('shows a loading state', () => {
-    render(<TeaserSidebar combos={[]} loading={true} error={null} />)
+  it('shows a loading state once requested', () => {
+    render(<TeaserSidebar combos={[]} loading={true} error={null} requested={true} onRequest={() => {}} />)
     expect(screen.getByText(/Loading teasers/)).toBeInTheDocument()
   })
 
-  it('shows an error state', () => {
-    render(<TeaserSidebar combos={[]} loading={false} error="boom" />)
+  it('shows an error state once requested', () => {
+    render(<TeaserSidebar combos={[]} loading={false} error="boom" requested={true} onRequest={() => {}} />)
     expect(screen.getByText('boom')).toBeInTheDocument()
   })
 
-  it('renders a combo with its legs and edge', () => {
-    render(<TeaserSidebar combos={[combo]} loading={false} error={null} />)
+  it('renders a combo with its legs and edge once requested', () => {
+    render(<TeaserSidebar combos={[combo]} loading={false} error={null} requested={true} onRequest={() => {}} />)
     expect(screen.getByText('2-Team Teaser')).toBeInTheDocument()
     expect(screen.getByText(/\+8\.6% edge/)).toBeInTheDocument()
     expect(screen.getByText(/KC/)).toBeInTheDocument()

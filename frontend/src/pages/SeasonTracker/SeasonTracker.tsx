@@ -4,7 +4,7 @@ import { useAccuracy } from '../../hooks/useAccuracy'
 import { useCoverAccuracy } from '../../hooks/useCoverAccuracy'
 import type { AccuracyResponse } from '../../api/types'
 
-const CURRENT_SEASON = 2025
+const CURRENT_SEASON = 2026
 
 type AccuracyMode = 'winner' | 'cover'
 
@@ -170,7 +170,7 @@ export function SeasonTracker() {
             type="number"
             value={season}
             onChange={handleSeasonChange}
-            className="w-20 bg-app-surface border border-app-border rounded px-2 py-1 text-app-text text-sm font-mono focus:border-app-green focus:outline-none"
+            className="w-20 min-h-[44px] bg-app-surface border border-app-border rounded px-2 py-2 text-app-text text-sm font-mono focus:border-app-green focus:outline-none"
             min={2000}
             max={2099}
           />

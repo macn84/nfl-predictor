@@ -149,7 +149,14 @@ export function WeeklyDashboard() {
     return isAuthenticated ? weeksData.weeks : weeksData.weeks.filter((w) => w.completed)
   }, [weeksData, isAuthenticated])
 
-  const defaultWeek = visibleWeeks[0]?.week ?? 1
+  // Default selection is driven by the backend's current_week, not array
+  // position — public stays one week behind (there's never public data for
+  // the in-progress week), authenticated opens on the current week itself.
+  const currentWeek = weeksData?.current_week ?? 1
+  const earliestVisibleWeek = visibleWeeks[0]?.week ?? 1
+  const defaultWeek = isAuthenticated
+    ? currentWeek
+    : Math.max(earliestVisibleWeek, currentWeek - 1)
   const selectedWeek = Number(searchParams.get('week') ?? defaultWeek)
 
   const {
@@ -164,11 +171,19 @@ export function WeeklyDashboard() {
     error: coversError,
   } = useCovers(season, selectedWeek, refreshKey)
 
+  // Teasers hit the odds API server-side, so the request is manually
+  // triggered (a button in TeaserSidebar) rather than auto-firing when the
+  // user switches to the Cover tab — resets whenever the week/season changes.
+  const [teasersRequested, setTeasersRequested] = useState(false)
+  useEffect(() => {
+    setTeasersRequested(false)
+  }, [season, selectedWeek])
+
   const {
     data: teaserData,
     loading: teaserLoading,
     error: teaserError,
-  } = useTeasers(season, selectedWeek, isAuthenticated && mode === 'covers')
+  } = useTeasers(season, selectedWeek, isAuthenticated && mode === 'covers' && teasersRequested)
 
   const { responses: llmResponses, analyzing, analyzingGames, error: llmError, analyze, analyzeGame } = useLLM(
     season,
@@ -229,7 +244,7 @@ export function WeeklyDashboard() {
           <select
             value={season}
             onChange={(e) => handleSeasonSelect(Number(e.target.value))}
-            className="bg-app-surface border border-app-border text-white font-display text-2xl tracking-wider rounded px-2 py-0.5 focus:outline-none focus:border-app-green cursor-pointer"
+            className="bg-app-surface border border-app-border text-white font-display text-2xl tracking-wider rounded px-2 py-2 min-h-[44px] focus:outline-none focus:border-app-green cursor-pointer"
           >
             {AVAILABLE_SEASONS.map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -377,7 +392,13 @@ export function WeeklyDashboard() {
               )}
             </div>
             {isAuthenticated && mode === 'covers' && (
-              <TeaserSidebar combos={teaserData?.combos ?? []} loading={teaserLoading} error={teaserError} />
+              <TeaserSidebar
+                combos={teaserData?.combos ?? []}
+                loading={teaserLoading}
+                error={teaserError}
+                requested={teasersRequested}
+                onRequest={() => setTeasersRequested(true)}
+              />
             )}
           </div>
         </>

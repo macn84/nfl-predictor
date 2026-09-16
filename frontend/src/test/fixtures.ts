@@ -77,6 +77,7 @@ export const fixtureWeeksResponse: WeeksResponse = {
     { week: 2, game_count: 16, completed: true },
     { week: 3, game_count: 16, completed: false },
   ],
+  current_week: 3,
 }
 
 export const fixtureWeekPredictions: WeekPredictionsResponse = {

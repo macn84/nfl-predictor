@@ -6,7 +6,7 @@ Personal NFL prediction tool. Two modes: **winner** (outright result) and **cove
 
 ## Stack
 
-- **Backend:** Python 3.11+, FastAPI, SQLite, `nflreadpy`, OddspaPI (primary), The Odds API (fallback), Open-Meteo (weather)
+- **Backend:** Python 3.11+, FastAPI, SQLite, `nflreadpy`, The Odds API (primary), OddspaPI (fallback), Open-Meteo (weather)
 - **Frontend:** React 18, TypeScript strict, Vite, Tailwind
 - **Testing:** pytest (backend), Vitest (frontend)
 - **Dev tooling:** `ruff`, `make`, VS Code tasks
