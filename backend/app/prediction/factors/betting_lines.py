@@ -754,6 +754,11 @@ def get_live_odds_data(
         return None
     if game_date is not None and is_historical(game_date):
         return None
+    if game_date is not None and game_date < date.today():
+        # Already played and not yet in the historical CSV — markets are
+        # closed, so a live call can never succeed. Same reasoning as the
+        # equivalent skip in calculate() above.
+        return None
 
     all_spreads: list[float] = []
     home_juice: int | None = None

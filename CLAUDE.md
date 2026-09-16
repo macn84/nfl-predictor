@@ -58,8 +58,60 @@ Two separate JSON caches in `data/`:
 - `cover_score_cache.json` / `cover_score_cache_full_history.json` — 7 cover factors (used by cover backtest and `optimise_cover_weights.py`)
 
 ### Other `data/` stores
-- `job_status.json` — last-run status of background jobs (odds / weather / LLM / nflverse / prediction model). Best-effort JSON, no history; each run overwrites. Powers `GET /api/v1/jobs` and the header "Jobs" popup. Instrument via `app.data.job_status`: `track_job("key")` context manager, `@status_tracked("key")` decorator, or `record_job_run("key", ok=, error=)`. Job keys are the fixed registry in `JOBS`. Instrumentation must never raise into the caller — all writes swallow their own errors.
+- `job_status.json` — last-run status of background jobs (weather / LLM / nflverse / prediction model, and **`the_odds_api`** / **`oddspapi`** as two independent keys — see "Odds API usage" below). Best-effort JSON, no history; each run overwrites. Powers `GET /api/v1/jobs` and the header "Jobs" popup. Instrument via `app.data.job_status`: `track_job("key")` context manager, `@status_tracked("key")` decorator, or `record_job_run("key", ok=, error=)`. Job keys are the fixed registry in `JOBS`. Instrumentation must never raise into the caller — all writes swallow their own errors.
 - `weather_forecast_cache.json` — cached Open-Meteo predicted weather for game cards (`app.data.weather_cache.get_game_weather_cached`). Display-only. `dome`/`archive` entries never expire; `forecast` entries expire after `weather_cache_ttl_hours`; errors are not cached. Pre-warmed by `run_scheduled_refresh()` when `weather_forecast_enabled`.
+
+### Odds API usage, rate limits, and the score-cache lifecycle
+Both `score_cache.json` (winner) and `cover_score_cache.json` (cover) are now
+actively built and maintained by `run_scheduled_refresh()` in `scheduler.py` —
+this was **not always true for the cover cache** (see incident below) and is
+easy to accidentally regress if `scheduler.py` is refactored.
+
+- **Never call live odds APIs for an already-played game.** `betting_lines.calculate()`
+  and `get_live_odds_data()` both short-circuit when `game_date < date.today()` and
+  the game isn't covered by the historical CSV (`data/spreads/nfl_{season}_spreads.csv`,
+  2015-2025 only). Sportsbooks pull the market at kickoff, so a live call there can
+  never succeed — pure wasted quota. Gate any new live-odds call site the same way.
+- **`live_spread` must survive cache eviction.** `scheduler.py` evicts and
+  recomputes the current week's cache entries on every run (fresh
+  odds/weather). If the recompute lands after a game finished but before
+  nflverse posts the final score (so it's still bucketed as "upcoming"), the
+  skip-branch above fires and the recompute yields no live spread. Both
+  `_add_to_cache` (winner) and `_add_to_cover_cache` (cover) rescue the old
+  entry's `live_spread`/`opening_spread` across that eviction — if you touch
+  this loop, keep the rescue or a finished game silently loses its captured
+  line forever (nothing else can recover it; there's no CSV for the current
+  season).
+- **`backfill=True` is destructive, not just slow.** It clears every cache
+  entry for the season *before* recomputing, with no rescue step at all —
+  unlike the per-run eviction above. Running it after `live_spread`/
+  `opening_spread` values are already captured will permanently wipe them
+  (no CSV to fall back to). Only use `backfill=True` deliberately (e.g. after
+  retuning weights in `.env`), never as a routine "make sure the cache is
+  populated" action — use a plain `run_scheduled_refresh(backfill=False)` /
+  `POST /scheduler/run-now` (no `backfill` param) for that; it only fills in
+  missing entries.
+- **Incident (2026-09-16): cover cache was never populated for a live season.**
+  `scheduler.py` only maintained the winner cache; `game_refresh.py`'s manual
+  per-game refresh only *evicts* a cover-cache entry, never writes one back.
+  Result: `covers.py` always missed the cache and called `predict_cover()`
+  live on every request (30-60s per week), and since `predict_cover()`'s
+  spread came only from the historical CSV, `cover_confidence` was pinned at
+  50.0 with no line all season. Fixed by (1) a live-spread fallback in
+  `predict_cover()` from the `betting_lines` factor's `supporting_data`
+  (already computed at weight=0 in cover mode — see "Skipped vs disabled"
+  above) when the CSV has nothing, and (2) `_add_to_cover_cache()` in
+  `scheduler.py`, mirroring `_add_to_cache()` at every step. A completed game
+  from *before* this shipped has no recoverable line (the pre-kickoff
+  capture window already passed) — `scripts/repair_cover_spread.py` lets you
+  hand-enter one.
+- **One-time repair scripts** (`backend/scripts/`): `repair_live_spread.py`
+  patches a winner-cache entry's `live_spread` from its `opening_spread` (or
+  a manually supplied value) if eviction ever wipes it again;
+  `repair_cover_spread.py` does the same for `cover_score_cache.json`'s
+  `spread` field, needed once after the incident above since those entries
+  never had a captured line to rescue from in the first place. Both are
+  idempotent — safe to re-run, no-op on anything already populated.
 
 ### Two independent weather paths — do not merge
 - **Scoring**: `prediction/factors/weather_factor.py`, reads nflverse schedule columns, disabled by default (`weight_weather = 0.0`).
@@ -84,6 +136,8 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 | `backend/app/data/job_status.py` | Background-job last-run tracker; `track_job` / `status_tracked` / `record_job_run` |
 | `backend/app/api/job_status.py` | `GET /api/v1/jobs` — job status for the header "Jobs" popup |
 | `backend/app/data/weather_cache.py` | On-disk cache for display-only predicted weather (`weather_forecast_cache.json`) |
+| `backend/app/scheduler.py` | `run_scheduled_refresh()`, `_add_to_cache()` / `_add_to_cover_cache()` — builds and maintains both `score_cache.json` and `cover_score_cache.json` |
+| `backend/scripts/repair_live_spread.py`, `repair_cover_spread.py` | One-time manual repair for a cache entry with a lost/never-captured `live_spread` — see "Odds API usage" above |
 | `backend/app/api/utils.py` | Shared API helpers — `_game_id(home, away)` canonical game ID |
 | `backend/app/api/cover_accuracy.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
 | `backend/app/api/covers.py` | Uses `COVER_MARGIN_SLOPE/INTERCEPT` |
@@ -111,8 +165,14 @@ Factors return `supporting_data["skipped"]=True` → always weight=0 regardless 
 - Stale mocks in `tests/test_factors.py`: if a test fails with "not enough values to unpack",
   check that mock tuple arity matches the current production return type.
   `_find_oddspapi_spread` and `_find_live_spread` both return 5-tuples.
-- Pre-existing E501 violations in `betting_lines.py:152,176` and `pbp_stats.py` — do not fix
+- Pre-existing E501 violations in `betting_lines.py:162,186` (line numbers shifted from
+  152/176 after the 2026-09-16 skip-branch fix) and `pbp_stats.py` — do not fix
   unless those lines are directly in scope.
+- **`backfill=True` wipes `live_spread`/`opening_spread` with no rescue** — see
+  "Odds API usage" above. Don't use it as a routine "populate the cache" action.
+- **`job_status.json`'s odds keys are split**: `the_odds_api` and `oddspapi` are tracked
+  independently (not a shared `odds_api` key) so a rate-limited primary provider's
+  failure isn't silently overwritten by the fallback's success right after.
 - **Open-Meteo Forecast API**: passing `forecast_days` alongside an explicit `start_date`/`end_date`
   range returns HTTP 400. Send only the date range for forecast lookups (`data/weather.py`).
   Also: the Forecast API only covers ~15 days out (`_FORECAST_HORIZON_DAYS`). `get_game_weather()`

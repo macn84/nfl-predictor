@@ -302,6 +302,16 @@ def predict_cover(
     spread: float | None = None
     if game_date is not None:
         spread = get_spread(home_team, away_team, game_date)
+    if spread is None:
+        # No historical CSV coverage (e.g. current season) — fall back to the
+        # live market spread the betting_lines factor already fetched above.
+        # It's forced to weight=0 in cover mode, but calculate() still runs
+        # and populates supporting_data regardless (see CLAUDE.md "Skipped
+        # vs disabled").
+        bl = next((f for f in existing_factors if f.name == "betting_lines"), None)
+        bl_data = bl.supporting_data if bl else {}
+        if bl and not bl_data.get("skipped") and bl_data.get("source", "").endswith("_live"):
+            spread = bl_data.get("home_team_spread")
 
     live_odds = get_live_odds_data(home_team, away_team, game_date)
 
