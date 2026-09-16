@@ -320,12 +320,14 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
 
         old_opening_spread: float | None = None
         old_opening_spread_ts: str | None = None
+        old_live_spread: float | None = None
         if is_current_week:
             # Always evict current-week entries so each scheduler run fetches
             # fresh odds and weather — but preserve the captured opening spread.
             old_entry = existing.pop(cache_key, None)
             old_opening_spread = old_entry.get("opening_spread") if old_entry else None
             old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+            old_live_spread = old_entry.get("live_spread") if old_entry else None
             # The prediction is about to be recomputed — any cached LLM
             # verdict was analyzed against the now-stale factors.
             evict_llm_response(season, current_week, _game_id(home, away))
@@ -337,6 +339,12 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                     if old_opening_spread is not None:
                         new_entry["opening_spread"] = old_opening_spread
                         new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                    # A finished game has no live odds market left to re-quote
+                    # (betting_lines.calculate() now skips it outright), so
+                    # keep whatever live_spread was captured while it was
+                    # still upcoming rather than letting the recompute wipe it.
+                    if new_entry.get("live_spread") is None and old_live_spread is not None:
+                        new_entry["live_spread"] = old_live_spread
                     apply_opening_spread(new_entry, new_entry.get("live_spread"))
             if added:
                 week_new += 1
@@ -375,11 +383,13 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                 continue
             cache_key = f"{home}-{away}-{game_date}"
             is_current_week = next_week is not None and row.get("week") == next_week
+            old_live_spread: float | None = None
             if is_current_week:
                 # Evict so each scheduler run fetches fresh odds for the imminent week.
                 old_entry = existing.pop(cache_key, None)
                 old_opening_spread = old_entry.get("opening_spread") if old_entry else None
                 old_opening_spread_ts = old_entry.get("opening_spread_captured_at") if old_entry else None
+                old_live_spread = old_entry.get("live_spread") if old_entry else None
                 # The prediction is about to be recomputed — any cached LLM
                 # verdict was analyzed against the now-stale factors.
                 evict_llm_response(next_season, next_week, _game_id(home, away))
@@ -391,6 +401,8 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                         if old_opening_spread is not None:
                             new_entry["opening_spread"] = old_opening_spread
                             new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                        if new_entry.get("live_spread") is None and old_live_spread is not None:
+                            new_entry["live_spread"] = old_live_spread
                         apply_opening_spread(new_entry, new_entry.get("live_spread"))
                 if added:
                     newly_cached += 1

@@ -59,6 +59,47 @@ interface GameCardProps {
   refreshing?: boolean
 }
 
+// Returns null while the game hasn't finished (or on a push, for cover mode)
+// — a checkmark/cross only makes sense once there's an actual result.
+function computeWinnerCorrect(game: GamePrediction): boolean | null {
+  if (game.home_score == null || game.away_score == null || game.home_score === game.away_score) {
+    return null
+  }
+  const actualWinner = game.home_score > game.away_score ? game.home_team : game.away_team
+  return game.predicted_winner === actualWinner
+}
+
+function computeCoverCorrect(game: GameCoverPrediction): boolean | null {
+  if (
+    game.home_score == null ||
+    game.away_score == null ||
+    game.spread == null ||
+    game.predicted_cover == null
+  ) {
+    return null
+  }
+  const actualMargin = game.home_score - game.away_score
+  if (actualMargin === game.spread) return null // push
+  const actualCover = actualMargin > game.spread ? game.home_team : game.away_team
+  return game.predicted_cover === actualCover
+}
+
+function ResultBadge({ correct }: { correct: boolean | null }) {
+  if (correct === null) return null
+  return (
+    <span
+      title={correct ? 'Pick was correct' : 'Pick was incorrect'}
+      className={`text-xs font-mono border rounded px-1.5 py-0.5 leading-none ${
+        correct
+          ? 'text-app-green border-app-green/40'
+          : 'text-app-dim border-app-border'
+      }`}
+    >
+      {correct ? '✓' : '✗'}
+    </span>
+  )
+}
+
 function formatSpread(team: string, spread: number): string {
   if (spread === 0) return `${team} PK`
   // `spread` is nflverse convention: positive = home favoured.
@@ -144,6 +185,13 @@ export function GameCard({ game, mode, season, edgeThreshold, onLocked, llm, onA
           )}
         </div>
         <div className="flex items-center gap-2">
+          <ResultBadge
+            correct={
+              mode === 'predictions'
+                ? computeWinnerCorrect(game as GamePrediction)
+                : computeCoverCorrect(game as GameCoverPrediction)
+            }
+          />
           {mode === 'covers' && edgeThreshold !== undefined && confidence >= edgeThreshold && (
             <span
               title="High-confidence cover pick"

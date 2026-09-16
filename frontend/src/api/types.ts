@@ -21,6 +21,8 @@ export interface GamePrediction {
   gameday: string
   home_team: string
   away_team: string
+  home_score?: number | null
+  away_score?: number | null
   predicted_winner: string
   confidence: number // 0..100
   factors: FactorResult[]
@@ -56,6 +58,8 @@ export interface GameCoverPrediction {
   gameday: string
   home_team: string
   away_team: string
+  home_score?: number | null
+  away_score?: number | null
   spread: number | null
   predicted_margin: number | null
   predicted_cover: string | null

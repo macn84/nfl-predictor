@@ -40,6 +40,8 @@ class GameCoverPrediction(BaseModel):
     gameday: str
     home_team: str
     away_team: str
+    home_score: int | None = None  # actual final score; None until the game completes
+    away_score: int | None = None
     spread: float | None
     predicted_margin: float | None
     predicted_cover: str | None
@@ -168,6 +170,8 @@ def _cover_week_games(
             if settings.weather_forecast_enabled
             else None
         )
+        home_score = int(row["home_score"]) if pd.notna(row.get("home_score")) else None
+        away_score = int(row["away_score"]) if pd.notna(row.get("away_score")) else None
 
         results.append(
             GameCoverPrediction(
@@ -177,6 +181,8 @@ def _cover_week_games(
                 gameday=gameday,
                 home_team=home,
                 away_team=away,
+                home_score=home_score,
+                away_score=away_score,
                 spread=spread,
                 predicted_margin=predicted_margin,
                 predicted_cover=predicted_cover,
@@ -283,6 +289,8 @@ def get_game_cover(
             gameday=gameday,
             home_team=home,
             away_team=away,
+            home_score=int(row["home_score"]) if pd.notna(row.get("home_score")) else None,
+            away_score=int(row["away_score"]) if pd.notna(row.get("away_score")) else None,
             spread=pred.spread,
             predicted_margin=pred.predicted_margin,
             predicted_cover=pred.predicted_cover,

@@ -129,11 +129,23 @@ export function SeasonTracker() {
   const loading = mode === 'winner' ? winnerLoading : coverLoading
   const error = mode === 'winner' ? winnerError : coverError
 
+  // Local draft so the input can hold an in-progress value (e.g. "2" while
+  // typing "2027") without snapping back to the last valid season on every
+  // keystroke — that revert-per-keystroke made the field feel uneditable,
+  // especially on mobile where there's no spinner to bypass typing.
+  const [seasonDraft, setSeasonDraft] = useState(String(season))
+
   function handleSeasonChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setSeasonDraft(e.target.value)
     const val = Number(e.target.value)
-    if (val >= 2000 && val <= 2099) {
+    if (e.target.value !== '' && val >= 2000 && val <= 2099) {
       setSearchParams({ season: String(val) })
     }
+  }
+
+  function handleSeasonBlur() {
+    // Snap back to the last valid season if the field was left incomplete/invalid.
+    setSeasonDraft(String(season))
   }
 
   return (
@@ -168,8 +180,10 @@ export function SeasonTracker() {
           Season
           <input
             type="number"
-            value={season}
+            inputMode="numeric"
+            value={seasonDraft}
             onChange={handleSeasonChange}
+            onBlur={handleSeasonBlur}
             className="w-20 min-h-[44px] bg-app-surface border border-app-border rounded px-2 py-2 text-app-text text-sm font-mono focus:border-app-green focus:outline-none"
             min={2000}
             max={2099}

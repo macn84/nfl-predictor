@@ -89,6 +89,8 @@ class GamePrediction(BaseModel):
     gameday: str
     home_team: str
     away_team: str
+    home_score: int | None = None  # actual final score; None until the game completes
+    away_score: int | None = None
     predicted_winner: str
     confidence: float
     factors: list[FactorResult]
@@ -206,6 +208,8 @@ def _predict_week_games(
             if settings.weather_forecast_enabled
             else None
         )
+        home_score = int(row["home_score"]) if pd.notna(row.get("home_score")) else None
+        away_score = int(row["away_score"]) if pd.notna(row.get("away_score")) else None
 
         results.append(
             GamePrediction(
@@ -215,6 +219,8 @@ def _predict_week_games(
                 gameday=gameday,
                 home_team=home,
                 away_team=away,
+                home_score=home_score,
+                away_score=away_score,
                 predicted_winner=predicted_winner,
                 confidence=confidence,
                 factors=factors,
@@ -353,6 +359,8 @@ def get_game_prediction(
             gameday=gameday,
             home_team=home,
             away_team=away,
+            home_score=int(row["home_score"]) if pd.notna(row.get("home_score")) else None,
+            away_score=int(row["away_score"]) if pd.notna(row.get("away_score")) else None,
             predicted_winner=pred.predicted_winner,
             confidence=pred.confidence,
             factors=pred.factors,

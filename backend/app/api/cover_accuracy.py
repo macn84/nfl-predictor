@@ -94,7 +94,12 @@ def get_cover_accuracy(
         if score_cache is not None and cache_key in score_cache:
             cached = score_cache[cache_key]
             weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
+            # "spread" (historical CSV) is None for a season with no closing-line
+            # CSV yet (e.g. current season); fall back to the live line captured
+            # while the game was still upcoming, same as covers.py does.
             _stored = cached.get("spread")
+            if _stored is None:
+                _stored = cached.get("live_spread")
             spread: float | None = float(_stored) if _stored is not None else None
             if spread is None:
                 continue
