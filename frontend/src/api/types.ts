@@ -1,0 +1,191 @@
+export interface FactorResult {
+  name: string
+  score: number // -100..+100, positive = home advantage
+  weight: number
+  contribution: number
+  supporting_data: Record<string, unknown>
+}
+
+export interface GameWeather {
+  condition: string // dome | sunny | overcast | rain | snow | unknown
+  temp_f: number | null // null for dome games
+  wind_mph: number | null // null for dome games
+  is_dome: boolean
+  source: string // dome | archive | forecast | cache
+}
+
+export interface GamePrediction {
+  game_id: string
+  season: number
+  week: number
+  gameday: string
+  home_team: string
+  away_team: string
+  home_score?: number | null
+  away_score?: number | null
+  predicted_winner: string
+  confidence: number // 0..100
+  factors: FactorResult[]
+  locked: boolean
+  refreshable: boolean // True for upcoming games that can be manually re-predicted
+  home_ml_juice: number | null // American odds for home team moneyline (e.g. -145)
+  away_ml_juice: number | null // American odds for away team moneyline (e.g. +125)
+  weather?: GameWeather | null // predicted game-time weather (display only)
+}
+
+export interface WeekSummary {
+  week: number
+  game_count: number
+  completed: boolean
+}
+
+export interface WeeksResponse {
+  season: number
+  weeks: WeekSummary[]
+  current_week: number | null
+}
+
+export interface WeekPredictionsResponse {
+  season: number
+  week: number
+  games: GamePrediction[]
+}
+
+export interface GameCoverPrediction {
+  game_id: string
+  season: number
+  week: number
+  gameday: string
+  home_team: string
+  away_team: string
+  home_score?: number | null
+  away_score?: number | null
+  spread: number | null
+  predicted_margin: number | null
+  predicted_cover: string | null
+  cover_confidence: number // 0..100
+  factors: FactorResult[]
+  locked: boolean
+  home_juice: number | null // American odds for home team spread (e.g. -110)
+  away_juice: number | null // American odds for away team spread (e.g. -110)
+  weather?: GameWeather | null // predicted game-time weather (display only)
+}
+
+export interface WeekCoversResponse {
+  season: number
+  week: number
+  games: GameCoverPrediction[]
+}
+
+export interface FrontendConfig {
+  cover_edge_threshold: number
+}
+
+export interface TeaserLeg {
+  game_id: string
+  team: string
+  opponent: string
+  gameday: string
+  original_line: number // bookmaker-convention line before the tease
+  teased_line: number // bookmaker-convention line after the tease
+  confidence: number // model's cover confidence (0..100) at the teased line
+}
+
+export interface TeaserCombo {
+  team_count: number
+  legs: TeaserLeg[]
+  combined_probability: number // 0..1
+  breakeven_probability: number // 0..1, implied by the book's teaser odds
+  edge_pct: number // (combined_probability - breakeven_probability) * 100
+}
+
+export interface TeaserWeekResponse {
+  season: number
+  week: number
+  combos: TeaserCombo[]
+}
+
+export interface RefreshResponse {
+  status: string
+  season: number
+  games_cached: number
+}
+
+export interface SchedulerJobStatus {
+  status: 'idle' | 'running' | 'done' | 'error'
+  season: number | null
+  week: number | null
+  games_newly_cached: number | null
+  games_skipped: number | null
+  elapsed_seconds: number | null
+  error: string | null
+}
+
+export interface WeekAccuracy {
+  week: number
+  correct: number
+  total: number
+  accuracy: number // 0..100
+}
+
+export interface TierAccuracy {
+  tier: string // "50-60" | "60-70" | "70-80" | "80+"
+  correct: number
+  total: number
+  accuracy: number // 0..100
+}
+
+export interface LLMGameResponse {
+  game_id: string
+  season: number
+  week: number
+  // NO_DATA: injury feed unavailable, analysis skipped. Legacy FADE/BOOST are no longer served.
+  verdict: 'AGREE' | 'DISAGREE' | 'NO_DATA' | null
+  explain: string | null   // empty for AGREE; the reason for a DISAGREE
+  flag: string | null      // same text as explain on DISAGREE; null when unauthenticated or AGREE
+  impact_pts: number | null                          // estimated point swing vs the model's pick
+  evidence: { fact: string; source: string }[]       // facts behind a DISAGREE; source = 'facts' or URL
+  generated_at: string | null
+}
+
+export interface LLMWeekResponse {
+  season: number
+  week: number
+  games: LLMGameResponse[]
+}
+
+export interface LLMAnalyzeResponse {
+  status: string
+  season: number
+  week: number
+  analyzed: number
+  skipped: number
+  /** Number of games queued for analysis. Poll until games.length >= eligible. */
+  eligible: number
+}
+
+export interface AccuracyResponse {
+  season: number
+  correct: number
+  total: number
+  accuracy: number // 0..100
+  by_week: WeekAccuracy[]
+  by_tier: TierAccuracy[]
+}
+
+/**
+ * Last-run status of a single background job, as returned by GET /api/v1/jobs.
+ * Powers the header "Jobs" popup. Only the most recent run is kept server-side.
+ */
+export interface JobStatus {
+  /** Stable machine key, e.g. "odds_api". */
+  key: string
+  /** Human-readable job name for display. */
+  label: string
+  /** ISO-8601 UTC timestamp of the last run, or null if it has never run. */
+  last_run: string | null
+  /** "ok" = last run succeeded, "error" = last run failed, "never" = not yet run. */
+  status: 'ok' | 'error' | 'never'
+  /** Error text for the last run when status is "error"; otherwise null. */
+  error: string | null
+}

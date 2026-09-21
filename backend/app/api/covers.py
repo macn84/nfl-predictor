@@ -1,0 +1,307 @@
+"""
+covers.py - API endpoints for spread-cover predictions.
+
+GET /api/v1/covers/{week}?season=           — all cover predictions for a week
+GET /api/v1/covers/{week}/{game_id}?season= — single game cover detail (auth required)
+"""
+
+import math
+from datetime import date
+from typing import Optional
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel
+
+from app.api.utils import _game_id
+from app.auth.deps import get_current_user, get_optional_user
+from app.config import settings
+from app.data.cache import apply_weights, load_cover_score_cache, load_score_cache
+from app.data.loader import load_schedules
+from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
+from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
+from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict_cover
+from app.prediction.models import CoverPredictionResult, FactorResult
+
+router = APIRouter(prefix="/api/v1")
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
+
+
+class GameCoverPrediction(BaseModel):
+    """Full cover prediction for one game, including API metadata."""
+
+    game_id: str
+    season: int
+    week: int
+    gameday: str
+    home_team: str
+    away_team: str
+    home_score: int | None = None  # actual final score; None until the game completes
+    away_score: int | None = None
+    spread: float | None
+    predicted_margin: float | None
+    predicted_cover: str | None
+    cover_confidence: float
+    factors: list[FactorResult]
+    locked: bool  # True when prediction is the official prediction of record
+    home_juice: int | None = None  # American odds for home team spread (e.g. -110)
+    away_juice: int | None = None  # American odds for away team spread (e.g. -110)
+    weather: GameWeatherOut | None = None  # predicted game-time weather (display only)
+
+
+class WeekCoversResponse(BaseModel):
+    season: int
+    week: int
+    games: list[GameCoverPrediction]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+
+def _cover_week_games(
+    season: int,
+    week: int,
+    schedules: pd.DataFrame,
+    score_cache: dict[str, dict] | None = None,
+    winner_cache: dict[str, dict] | None = None,
+    authenticated: bool = False,
+) -> list[GameCoverPrediction]:
+    """Run the cover prediction engine for every game in a given week.
+
+    Args:
+        season: NFL season year.
+        week: Week number.
+        schedules: Pre-loaded schedules DataFrame (must cover season-3..season).
+        score_cache: Pre-loaded 7-factor cover score cache (load_cover_score_cache()),
+                     or None to always call predict_cover().
+        winner_cache: Pre-loaded winner score cache (load_score_cache()), consulted
+                      only for the "locked" flag — locking always writes to
+                      score_cache.json, never to the cover cache, regardless of
+                      which mode was locked in.
+        authenticated: Whether the caller has a valid auth token.
+
+    Returns:
+        List of GameCoverPrediction objects ordered as they appear in the schedule.
+    """
+    week_games = schedules[
+        (schedules["season"] == season) & (schedules["week"] == week)
+    ]
+    results: list[GameCoverPrediction] = []
+    for _, row in week_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        gameday_raw = row.get("gameday", "")
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
+
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+
+        cache_key = f"{home}-{away}-{game_date}" if game_date else None
+        in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
+
+        home_juice: int | None = None
+        away_juice: int | None = None
+
+        if in_cache and score_cache is not None and cache_key is not None:
+            cached = score_cache[cache_key]
+            weighted_sum, _ = apply_weights(cached, settings.cover_weights)
+            # Prefer live market spread; fall back to historical closing line.
+            # For upcoming games, "spread" (historical CSV) is None but "live_spread"
+            # holds the current bookmaker line from OddspaPI or The Odds API.
+            _live = cached.get("live_spread")
+            cached_spread: float | None = _live if _live is not None else cached.get("spread")
+            predicted_margin: float | None = (
+                (COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT)
+                if cached_spread is not None
+                else None
+            )
+            # Recompute cover confidence using the margin-disagreement formula, not
+            # the winner-style |weighted_sum| confidence returned by apply_weights().
+            if predicted_margin is not None and cached_spread is not None:
+                cover_confidence = min(
+                    50.0 + abs(predicted_margin - cached_spread) * COVER_CONFIDENCE_SCALE,
+                    100.0,
+                )
+            else:
+                cover_confidence = 50.0
+            predicted_cover: str | None = (
+                home if (predicted_margin is not None and predicted_margin > cached_spread)  # type: ignore[operator]
+                else away if predicted_margin is not None
+                else None
+            )
+            spread = cached_spread
+            home_juice = cached.get("home_juice")
+            away_juice = cached.get("away_juice")
+            factors: list[FactorResult] = []
+            # Locking always writes to the winner cache, never the cover cache —
+            # look the flag up there regardless of which cache served this entry.
+            locked = bool(
+                winner_cache and cache_key in winner_cache
+                and winner_cache[cache_key].get("locked", False)
+            )
+        else:
+            pred: CoverPredictionResult = predict_cover(
+                home, away, season, schedules=schedules, game_date=game_date
+            )
+            spread = pred.spread
+            predicted_margin = pred.predicted_margin
+            predicted_cover = pred.predicted_cover
+            cover_confidence = pred.cover_confidence
+            bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+            home_juice = bl.supporting_data.get("home_juice") if bl else None
+            away_juice = bl.supporting_data.get("away_juice") if bl else None
+            factors = pred.factors if authenticated else []
+            locked = False
+
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+        home_score = int(row["home_score"]) if pd.notna(row.get("home_score")) else None
+        away_score = int(row["away_score"]) if pd.notna(row.get("away_score")) else None
+
+        results.append(
+            GameCoverPrediction(
+                game_id=_game_id(home, away),
+                season=season,
+                week=week,
+                gameday=gameday,
+                home_team=home,
+                away_team=away,
+                home_score=home_score,
+                away_score=away_score,
+                spread=spread,
+                predicted_margin=predicted_margin,
+                predicted_cover=predicted_cover,
+                cover_confidence=cover_confidence,
+                factors=factors,
+                locked=locked,
+                home_juice=home_juice,
+                away_juice=away_juice,
+                weather=weather,
+            )
+        )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/covers/{week}", response_model=WeekCoversResponse)
+def get_week_covers(
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+    current_user: Optional[str] = Depends(get_optional_user),
+) -> WeekCoversResponse:
+    """Return cover predictions for every game in a given week.
+
+    - Unauthenticated: factors are stripped from all responses.
+    - Authenticated: factors included.
+    """
+    authenticated = current_user is not None
+    seasons = list(range(2015, season + 1))
+    schedules = load_schedules(seasons)
+    # Must be the 7-factor cover cache, not the 6-factor winner score_cache —
+    # apply_weights() below only sees keys present in the cache entry, so a
+    # winner-cache entry silently drops success_rate/market_signals/qb_matchup
+    # and produces an incomplete cover weighting (see cache.py docstring).
+    score_cache = load_cover_score_cache()
+    # locked state always lives in the winner cache — see _cover_week_games().
+    winner_cache = load_score_cache()
+    games = _cover_week_games(
+        season,
+        week,
+        schedules,
+        score_cache=score_cache,
+        winner_cache=winner_cache,
+        authenticated=authenticated,
+    )
+    if not games:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No games found for season {season} week {week}",
+        )
+    return WeekCoversResponse(season=season, week=week, games=games)
+
+
+@router.get("/covers/{week}/{game_id}", response_model=GameCoverPrediction)
+def get_game_cover(
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    game_id: str = Path(..., pattern=r"^[a-z]{2,4}-[a-z]{2,4}$"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+    current_user: str = Depends(get_current_user),
+) -> GameCoverPrediction:
+    """Return the full cover prediction (with factor drill-down) for a single game.
+
+    Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
+    """
+    seasons = list(range(2015, season + 1))
+    schedules = load_schedules(seasons)
+    week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
+    for _, row in week_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        if _game_id(home, away) != game_id:
+            continue
+        gameday_raw = row.get("gameday", "")
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+
+        cache_key = f"{home}-{away}-{game_date}" if game_date else None
+        score_cache = load_score_cache()
+        in_cache = score_cache is not None and cache_key is not None and cache_key in score_cache
+        locked = in_cache and (score_cache or {}).get(cache_key, {}).get("locked", False)
+
+        pred: CoverPredictionResult = predict_cover(
+            home, away, season, schedules=schedules, game_date=game_date
+        )
+        bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+        return GameCoverPrediction(
+            game_id=game_id,
+            season=season,
+            week=week,
+            gameday=gameday,
+            home_team=home,
+            away_team=away,
+            home_score=int(row["home_score"]) if pd.notna(row.get("home_score")) else None,
+            away_score=int(row["away_score"]) if pd.notna(row.get("away_score")) else None,
+            spread=pred.spread,
+            predicted_margin=pred.predicted_margin,
+            predicted_cover=pred.predicted_cover,
+            cover_confidence=pred.cover_confidence,
+            factors=pred.factors,
+            locked=locked,
+            home_juice=bl.supporting_data.get("home_juice") if bl else None,
+            away_juice=bl.supporting_data.get("away_juice") if bl else None,
+            weather=weather,
+        )
+    raise HTTPException(
+        status_code=404,
+        detail=f"Game '{game_id}' not found in season {season} week {week}",
+    )

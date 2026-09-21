@@ -1,0 +1,712 @@
+"""
+scheduler.py — APScheduler background job for automated data refresh and score cache
+population.
+
+Jobs run Mon/Thu/Sat/Sun at configurable ET times (see config.py / backend/.env).
+Each run:
+  1. Re-downloads schedule, weekly stats, and roster data (same as POST /api/v1/refresh)
+  2. Backfills score_cache.json and cover_score_cache.json for all completed
+     season games not already cached
+  3. Pre-populates both caches for current-week upcoming games
+
+Start/stop via lifespan hooks in main.py. The run_scheduled_refresh() function is also
+called directly by the POST /api/v1/scheduler/run-now endpoint.
+"""
+
+import logging
+import math
+import time
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+from app.api.utils import _game_id
+from app.config import settings
+from app.data import accuracy_cache
+from app.data.cache import (
+    apply_opening_spread,
+    load_cover_score_cache,
+    load_score_cache,
+    write_cover_score_cache,
+    write_score_cache,
+)
+from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
+from app.data.spreads import get_spread
+from app.data.weather_cache import get_game_weather_cached
+from app.prediction.engine import predict, predict_cover
+from app.services.llm import evict_llm_response
+
+logger = logging.getLogger(__name__)
+ET = ZoneInfo("America/New_York")
+
+_scheduler: BackgroundScheduler | None = None
+
+
+# ---------------------------------------------------------------------------
+# Season / week helpers
+# ---------------------------------------------------------------------------
+
+
+def _current_nfl_season() -> int:
+    """Return the current NFL season year.
+
+    NFL seasons end in February (Super Bowl). March onward belongs to the
+    upcoming season — the schedule is typically released in April/May and
+    pre-season caching should target the new year.
+
+    Returns:
+        Four-digit season year (e.g. 2026).
+    """
+    today = date.today()
+    return today.year if today.month >= 3 else today.year - 1
+
+
+def _current_week(schedules: pd.DataFrame, season: int) -> int | None:
+    """Return the current or most-recent NFL week for the given season.
+
+    Returns the earliest week that still has at least one uncompleted game.
+    Falls back to the last week if all weeks are complete (offseason).
+
+    Args:
+        schedules: Pre-loaded schedules DataFrame.
+        season: NFL season year.
+
+    Returns:
+        Week number, or None if no schedule data exists for the season.
+    """
+    season_games = schedules[schedules["season"] == season]
+    if season_games.empty:
+        return None
+
+    for week_num in sorted(season_games["week"].unique()):
+        week_games = season_games[season_games["week"] == week_num]
+        all_complete = (
+            week_games["home_score"].notna().all() and week_games["away_score"].notna().all()
+        )
+        if not all_complete:
+            return int(week_num)
+
+    return int(season_games["week"].max())
+
+
+# ---------------------------------------------------------------------------
+# Cache population
+# ---------------------------------------------------------------------------
+
+
+def _add_to_cache(
+    home: str,
+    away: str,
+    season: int,
+    game_date: date | None,
+    schedules: pd.DataFrame,
+    team_stats: pd.DataFrame,
+    cache: dict[str, dict],
+) -> bool:
+    """Run predict() for one game and insert the result into ``cache`` in-place.
+
+    Skips the game if an entry already exists for the same cache key.
+
+    Args:
+        home: Home team abbreviation (e.g. "KC").
+        away: Away team abbreviation (e.g. "BUF").
+        season: NFL season year.
+        game_date: Game date used as part of the cache key.
+        schedules: Pre-loaded schedules DataFrame.
+        cache: Mutable dict keyed by game_id; updated in-place.
+
+    Returns:
+        True if a new entry was added, False if already present (skipped).
+    """
+    cache_key = f"{home}-{away}-{game_date}" if game_date else f"{home}-{away}"
+    if cache_key in cache:
+        return False
+
+    pred = predict(
+        home, away, season, schedules=schedules, team_stats=team_stats, game_date=game_date
+    )
+    spread = get_spread(home, away, game_date) if game_date else None
+
+    bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+    bl_data = bl.supporting_data if bl else {}
+    home_juice: int | None = bl_data.get("home_juice")
+    away_juice: int | None = bl_data.get("away_juice")
+    home_ml_juice: int | None = bl_data.get("home_ml_juice")
+    away_ml_juice: int | None = bl_data.get("away_ml_juice")
+    # live_spread: the spread currently quoted by the live API (not the historical CSV).
+    # None for completed/historical games where betting_lines reads from CSV.
+    live_spread: float | None = (
+        bl_data.get("home_team_spread")
+        if bl and not bl_data.get("skipped") and bl_data.get("source", "").endswith("_live")
+        else None
+    )
+
+    cache[cache_key] = {
+        "game_id": cache_key,
+        "factors": {
+            f.name: {
+                "score": f.score,
+                "skipped": bool(f.supporting_data.get("skipped", False)),
+            }
+            for f in pred.factors
+        },
+        "spread": spread,
+        "home_juice": home_juice,
+        "away_juice": away_juice,
+        "home_ml_juice": home_ml_juice,
+        "away_ml_juice": away_ml_juice,
+        "live_spread": live_spread,
+    }
+    return True
+
+
+def _add_to_cover_cache(
+    home: str,
+    away: str,
+    season: int,
+    game_date: date | None,
+    schedules: pd.DataFrame,
+    team_stats: pd.DataFrame,
+    cache: dict[str, dict],
+    opening_spread: float | None = None,
+) -> bool:
+    """Run predict_cover() for one game and insert the result into ``cache`` in-place.
+
+    Mirrors _add_to_cache() above but for the 7-factor cover cache
+    (cover_score_cache.json) — nothing previously kept this file current for
+    a live season, so covers.py always missed the cache and fell through to
+    a live predict_cover() call on every request.
+
+    Args:
+        home: Home team abbreviation (e.g. "KC").
+        away: Away team abbreviation (e.g. "BUF").
+        season: NFL season year.
+        game_date: Game date used as part of the cache key.
+        schedules: Pre-loaded schedules DataFrame.
+        team_stats: Pre-loaded team-game-stats DataFrame.
+        cache: Mutable dict keyed by game_id; updated in-place.
+        opening_spread: Previously captured opening line, if any — passed
+            through to market_signals_factor for line-movement scoring.
+
+    Returns:
+        True if a new entry was added, False if already present (skipped).
+    """
+    cache_key = f"{home}-{away}-{game_date}" if game_date else f"{home}-{away}"
+    if cache_key in cache:
+        return False
+
+    pred = predict_cover(
+        home, away, season,
+        schedules=schedules, team_stats=team_stats, game_date=game_date,
+        opening_spread=opening_spread,
+    )
+
+    bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+    bl_data = bl.supporting_data if bl else {}
+    home_juice: int | None = bl_data.get("home_juice")
+    away_juice: int | None = bl_data.get("away_juice")
+    # live_spread: the spread currently quoted by the live API (not the historical CSV).
+    # None for completed/historical games where betting_lines reads from CSV.
+    live_spread: float | None = (
+        bl_data.get("home_team_spread")
+        if bl and not bl_data.get("skipped") and bl_data.get("source", "").endswith("_live")
+        else None
+    )
+
+    cache[cache_key] = {
+        "game_id": cache_key,
+        "factors": {
+            f.name: {
+                "score": f.score,
+                "skipped": bool(f.supporting_data.get("skipped", False)),
+            }
+            for f in pred.factors
+        },
+        "spread": pred.spread,
+        "home_juice": home_juice,
+        "away_juice": away_juice,
+        "live_spread": live_spread,
+    }
+    return True
+
+
+def _parse_gameday(row: pd.Series) -> date | None:
+    """Extract a game date from a schedule row, matching existing codebase NaN handling.
+
+    Args:
+        row: A single row from the schedules DataFrame.
+
+    Returns:
+        Parsed date, or None if the gameday field is absent / unparseable.
+    """
+    raw = row.get("gameday", "")
+    is_nan = isinstance(raw, float) and math.isnan(raw)
+    if raw is None or is_nan or raw == "":
+        return None
+    try:
+        return date.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Core job
+# ---------------------------------------------------------------------------
+
+
+def run_scheduled_refresh(backfill: bool = False) -> dict:
+    """Execute the full data refresh and score cache population job.
+
+    This function is the single entry point for both the scheduler and the
+    POST /api/v1/scheduler/run-now endpoint.
+
+    Steps:
+      1. Re-download schedule + stats (same code path as POST /api/v1/refresh).
+      2. Backfill score_cache.json for all completed season games not yet cached.
+         If ``backfill=True``, existing entries for the current season are cleared
+         first so everything is recomputed from scratch.
+      3. Pre-populate the current week's upcoming games so the API serves from
+         cache on the next request.
+      4. Write the updated cache to disk in one atomic operation.
+
+    Args:
+        backfill: If True, force a full recompute of all season entries (useful
+                  after tuning weights in backend/.env). Default is incremental
+                  (skip entries already present in cache).
+
+    Returns:
+        Dict with job stats:
+          season (int), week (int | None), games_newly_cached (int),
+          games_skipped (int), elapsed_seconds (float).
+    """
+    start = time.time()
+    now_et = datetime.now(ET)
+    logger.info(
+        "Scheduler job started at %s ET (backfill=%s)",
+        now_et.strftime("%Y-%m-%d %H:%M:%S"),
+        backfill,
+    )
+
+    season = _current_nfl_season()
+    logger.info("Target season: %d", season)
+
+    # ------------------------------------------------------------------
+    # Step 1: Data refresh
+    # ------------------------------------------------------------------
+    # Include the upcoming season so the scheduler can pre-cache its games
+    # when nflverse releases the schedule early (e.g. May–August off-season).
+    next_season = season + 1
+    history_seasons = list(range(2015, next_season + 1))
+    schedules = load_schedules(history_seasons, force_refresh=True)
+    team_stats = load_team_game_stats(history_seasons, force_refresh=True)
+    load_weekly_stats([season], force_refresh=True)
+    load_rosters([season], force_refresh=True)
+    accuracy_cache.clear()
+    logger.info("Data refresh complete for seasons %s", history_seasons)
+
+    season_games = schedules[schedules["season"] == season]
+    current_week = _current_week(schedules, season)
+    logger.info("Current week: %s", current_week)
+
+    # ------------------------------------------------------------------
+    # Step 2: Load existing cache (preserving all seasons)
+    # ------------------------------------------------------------------
+    existing = load_score_cache() or {}
+    # allow_fallback=False: never fall back to score_cache.json here — that
+    # would write 6-factor winner entries into the 7-factor cover cache.
+    existing_cover = load_cover_score_cache(allow_fallback=False) or {}
+
+    if backfill:
+        # Clear ALL entries for the current season so everything is recomputed.
+        season_keys = set()
+        for _, row in season_games.iterrows():
+            game_date = _parse_gameday(row)
+            if game_date:
+                season_keys.add(f"{row['home_team']}-{row['away_team']}-{game_date}")
+        removed = sum(1 for k in season_keys if k in existing)
+        for k in season_keys:
+            existing.pop(k, None)
+            existing_cover.pop(k, None)
+        logger.info("Backfill: cleared %d existing season entries", removed)
+
+    # ------------------------------------------------------------------
+    # Step 2b: Pre-load PBP data for the season so cover factor calls
+    #          within this run share one in-memory copy.
+    # ------------------------------------------------------------------
+    try:
+        from app.data.pbp_stats import preload_pbp
+        preload_pbp(season)
+        logger.info("PBP data preloaded for season %d", season)
+    except Exception:
+        logger.warning("PBP preload failed (non-fatal)", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Step 3: Cache all completed games for the season
+    # ------------------------------------------------------------------
+    completed = season_games[
+        season_games["home_score"].notna() & season_games["away_score"].notna()
+    ]
+    newly_cached = 0
+    skipped = 0
+
+    for _, row in completed.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        game_date = _parse_gameday(row)
+        if game_date is None:
+            continue
+        try:
+            added = _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
+            if added:
+                newly_cached += 1
+            else:
+                skipped += 1
+        except Exception:
+            logger.warning(
+                "Failed to cache completed game %s vs %s (%s)",
+                home,
+                away,
+                game_date,
+                exc_info=True,
+            )
+        try:
+            _add_to_cover_cache(
+                home, away, season, game_date, schedules, team_stats, existing_cover,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to cover-cache completed game %s vs %s (%s)",
+                home,
+                away,
+                game_date,
+                exc_info=True,
+            )
+
+    logger.info(
+        "Completed games: %d newly cached, %d already present", newly_cached, skipped
+    )
+
+    # ------------------------------------------------------------------
+    # Step 4: Pre-populate all upcoming games for the current season.
+    # Current week: always evict + recompute (fresh odds/weather).
+    # Future weeks: add to cache only if not already present.
+    # ------------------------------------------------------------------
+    week_new = 0
+    upcoming_games = season_games[
+        season_games["home_score"].isna() | season_games["away_score"].isna()
+    ]
+    for _, row in upcoming_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        game_date = _parse_gameday(row)
+        if game_date is None:
+            continue
+        cache_key = f"{home}-{away}-{game_date}"
+        is_current_week = current_week is not None and row.get("week") == current_week
+
+        # Pre-warm the predicted-weather cache so API requests never block on
+        # Open-Meteo. Best-effort; failures are swallowed inside the helper.
+        # Current-week games force a re-fetch to match the fresh-odds refresh.
+        if settings.weather_forecast_enabled:
+            get_game_weather_cached(home, game_date, force=is_current_week)
+
+        old_opening_spread: float | None = None
+        old_opening_spread_ts: str | None = None
+        old_live_spread: float | None = None
+        old_cover_opening_spread: float | None = None
+        old_cover_opening_spread_ts: str | None = None
+        old_cover_live_spread: float | None = None
+        if is_current_week:
+            # Always evict current-week entries so each scheduler run fetches
+            # fresh odds and weather — but preserve the captured opening spread.
+            old_entry = existing.pop(cache_key, None)
+            old_opening_spread = old_entry.get("opening_spread") if old_entry else None
+            old_opening_spread_ts = (
+                old_entry.get("opening_spread_captured_at") if old_entry else None
+            )
+            old_live_spread = old_entry.get("live_spread") if old_entry else None
+            old_cover_entry = existing_cover.pop(cache_key, None)
+            old_cover_opening_spread = (
+                old_cover_entry.get("opening_spread") if old_cover_entry else None
+            )
+            old_cover_opening_spread_ts = (
+                old_cover_entry.get("opening_spread_captured_at") if old_cover_entry else None
+            )
+            old_cover_live_spread = old_cover_entry.get("live_spread") if old_cover_entry else None
+            # The prediction is about to be recomputed — any cached LLM
+            # verdict was analyzed against the now-stale factors.
+            evict_llm_response(season, current_week, _game_id(home, away))
+        try:
+            added = _add_to_cache(home, away, season, game_date, schedules, team_stats, existing)
+            if is_current_week:
+                new_entry = existing.get(cache_key)
+                if new_entry is not None:
+                    if old_opening_spread is not None:
+                        new_entry["opening_spread"] = old_opening_spread
+                        new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                    # A finished game has no live odds market left to re-quote
+                    # (betting_lines.calculate() now skips it outright), so
+                    # keep whatever live_spread was captured while it was
+                    # still upcoming rather than letting the recompute wipe it.
+                    if new_entry.get("live_spread") is None and old_live_spread is not None:
+                        new_entry["live_spread"] = old_live_spread
+                    apply_opening_spread(new_entry, new_entry.get("live_spread"))
+            if added:
+                week_new += 1
+                newly_cached += 1
+        except Exception:
+            logger.warning(
+                "Failed to cache upcoming game %s vs %s (%s)",
+                home,
+                away,
+                game_date,
+                exc_info=True,
+            )
+        try:
+            _add_to_cover_cache(
+                home, away, season, game_date, schedules, team_stats, existing_cover,
+                opening_spread=old_cover_opening_spread,
+            )
+            if is_current_week:
+                new_cover_entry = existing_cover.get(cache_key)
+                if new_cover_entry is not None:
+                    if old_cover_opening_spread is not None:
+                        new_cover_entry["opening_spread"] = old_cover_opening_spread
+                        new_cover_entry["opening_spread_captured_at"] = old_cover_opening_spread_ts
+                    if (
+                        new_cover_entry.get("live_spread") is None
+                        and old_cover_live_spread is not None
+                    ):
+                        new_cover_entry["live_spread"] = old_cover_live_spread
+                    apply_opening_spread(new_cover_entry, new_cover_entry.get("live_spread"))
+        except Exception:
+            logger.warning(
+                "Failed to cover-cache upcoming game %s vs %s (%s)",
+                home,
+                away,
+                game_date,
+                exc_info=True,
+            )
+
+    logger.info(
+        "Current week %s: %d upcoming games refreshed/cached across all weeks",
+        current_week,
+        week_new,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 4b: Pre-populate next season's upcoming games if schedule data
+    # is already available (e.g. NFL releases the schedule in May/June).
+    # ------------------------------------------------------------------
+    next_season_games = schedules[schedules["season"] == next_season]
+    if not next_season_games.empty:
+        next_week = _current_week(schedules, next_season)
+        next_new = 0
+        upcoming_next = next_season_games[
+            next_season_games["home_score"].isna() | next_season_games["away_score"].isna()
+        ]
+        for _, row in upcoming_next.iterrows():
+            home = str(row["home_team"])
+            away = str(row["away_team"])
+            game_date = _parse_gameday(row)
+            if game_date is None:
+                continue
+            cache_key = f"{home}-{away}-{game_date}"
+            is_current_week = next_week is not None and row.get("week") == next_week
+            old_live_spread: float | None = None
+            old_cover_opening_spread: float | None = None
+            old_cover_opening_spread_ts: str | None = None
+            old_cover_live_spread: float | None = None
+            if is_current_week:
+                # Evict so each scheduler run fetches fresh odds for the imminent week.
+                old_entry = existing.pop(cache_key, None)
+                old_opening_spread = old_entry.get("opening_spread") if old_entry else None
+                old_opening_spread_ts = (
+                    old_entry.get("opening_spread_captured_at") if old_entry else None
+                )
+                old_live_spread = old_entry.get("live_spread") if old_entry else None
+                old_cover_entry = existing_cover.pop(cache_key, None)
+                old_cover_opening_spread = (
+                    old_cover_entry.get("opening_spread") if old_cover_entry else None
+                )
+                old_cover_opening_spread_ts = (
+                    old_cover_entry.get("opening_spread_captured_at") if old_cover_entry else None
+                )
+                old_cover_live_spread = (
+                    old_cover_entry.get("live_spread") if old_cover_entry else None
+                )
+                # The prediction is about to be recomputed — any cached LLM
+                # verdict was analyzed against the now-stale factors.
+                evict_llm_response(next_season, next_week, _game_id(home, away))
+            try:
+                added = _add_to_cache(
+                    home, away, next_season, game_date, schedules, team_stats, existing
+                )
+                if is_current_week:
+                    new_entry = existing.get(cache_key)
+                    if new_entry is not None:
+                        if old_opening_spread is not None:
+                            new_entry["opening_spread"] = old_opening_spread
+                            new_entry["opening_spread_captured_at"] = old_opening_spread_ts
+                        if new_entry.get("live_spread") is None and old_live_spread is not None:
+                            new_entry["live_spread"] = old_live_spread
+                        apply_opening_spread(new_entry, new_entry.get("live_spread"))
+                if added:
+                    newly_cached += 1
+                    next_new += 1
+            except Exception:
+                logger.warning(
+                    "Failed to cache next-season game %s vs %s (%s)",
+                    home, away, game_date, exc_info=True,
+                )
+            try:
+                _add_to_cover_cache(
+                    home, away, next_season, game_date, schedules, team_stats, existing_cover,
+                    opening_spread=old_cover_opening_spread,
+                )
+                if is_current_week:
+                    new_cover_entry = existing_cover.get(cache_key)
+                    if new_cover_entry is not None:
+                        if old_cover_opening_spread is not None:
+                            new_cover_entry["opening_spread"] = old_cover_opening_spread
+                            new_cover_entry["opening_spread_captured_at"] = (
+                                old_cover_opening_spread_ts
+                            )
+                        if (
+                            new_cover_entry.get("live_spread") is None
+                            and old_cover_live_spread is not None
+                        ):
+                            new_cover_entry["live_spread"] = old_cover_live_spread
+                        apply_opening_spread(new_cover_entry, new_cover_entry.get("live_spread"))
+            except Exception:
+                logger.warning(
+                    "Failed to cover-cache next-season game %s vs %s (%s)",
+                    home, away, game_date, exc_info=True,
+                )
+        if next_new:
+            logger.info(
+                "Next season %d: %d upcoming games cached (current week=%s)",
+                next_season,
+                next_new,
+                next_week,
+            )
+
+    # ------------------------------------------------------------------
+    # Step 5: Write updated caches to disk
+    # ------------------------------------------------------------------
+    write_score_cache(list(existing.values()))
+    write_cover_score_cache(list(existing_cover.values()))
+
+    elapsed = round(time.time() - start, 1)
+    logger.info(
+        "Scheduler job complete — season=%d week=%s newly_cached=%d skipped=%d elapsed=%.1fs",
+        season,
+        current_week,
+        newly_cached,
+        skipped,
+        elapsed,
+    )
+
+    return {
+        "season": season,
+        "week": current_week,
+        "games_newly_cached": newly_cached,
+        "games_skipped": skipped,
+        "elapsed_seconds": elapsed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Scheduler lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _safe_run() -> None:
+    """Run the refresh job, catching all exceptions so failures never crash the server."""
+    try:
+        run_scheduled_refresh()
+    except Exception:
+        logger.error("Scheduler job failed", exc_info=True)
+
+
+def start_scheduler() -> None:
+    """Start the APScheduler background scheduler with four weekly cron jobs.
+
+    Called from FastAPI's lifespan startup. Safe to call multiple times — no-ops
+    if the scheduler is already running.
+    """
+    global _scheduler
+    if _scheduler is not None:
+        return
+
+    _scheduler = BackgroundScheduler(timezone="America/New_York")
+
+    _scheduler.add_job(
+        _safe_run,
+        CronTrigger(
+            day_of_week="mon",
+            hour=settings.scheduler_monday_hour,
+            minute=settings.scheduler_monday_minute,
+            timezone="America/New_York",
+        ),
+        id="monday_refresh",
+        name="Monday refresh (post-MNF results)",
+    )
+    _scheduler.add_job(
+        _safe_run,
+        CronTrigger(
+            day_of_week="thu",
+            hour=settings.scheduler_thursday_hour,
+            minute=settings.scheduler_thursday_minute,
+            timezone="America/New_York",
+        ),
+        id="thursday_refresh",
+        name="Thursday refresh (TNF prep)",
+    )
+    _scheduler.add_job(
+        _safe_run,
+        CronTrigger(
+            day_of_week="sat",
+            hour=settings.scheduler_saturday_hour,
+            minute=settings.scheduler_saturday_minute,
+            timezone="America/New_York",
+        ),
+        id="saturday_refresh",
+        name="Saturday refresh",
+    )
+    _scheduler.add_job(
+        _safe_run,
+        CronTrigger(
+            day_of_week="sun",
+            hour=settings.scheduler_sunday_hour,
+            minute=settings.scheduler_sunday_minute,
+            timezone="America/New_York",
+        ),
+        id="sunday_refresh",
+        name="Sunday refresh (early games)",
+    )
+
+    _scheduler.start()
+    logger.info(
+        "Scheduler started — Mon %02d:%02d, Thu %02d:%02d, Sat %02d:%02d, Sun %02d:%02d ET",
+        settings.scheduler_monday_hour,
+        settings.scheduler_monday_minute,
+        settings.scheduler_thursday_hour,
+        settings.scheduler_thursday_minute,
+        settings.scheduler_saturday_hour,
+        settings.scheduler_saturday_minute,
+        settings.scheduler_sunday_hour,
+        settings.scheduler_sunday_minute,
+    )
+
+
+def stop_scheduler() -> None:
+    """Shut down the scheduler cleanly. Called from FastAPI's lifespan teardown."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+        logger.info("Scheduler stopped")

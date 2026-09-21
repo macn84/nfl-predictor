@@ -1,0 +1,203 @@
+import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useAccuracy } from '../../hooks/useAccuracy'
+import { useCoverAccuracy } from '../../hooks/useCoverAccuracy'
+import type { AccuracyResponse } from '../../api/types'
+
+const CURRENT_SEASON = 2026
+
+type AccuracyMode = 'winner' | 'cover'
+
+function AccuracyTables({ data, season }: { data: AccuracyResponse; season: number }) {
+  return (
+    <div className="space-y-6">
+      {/* Overall accuracy card */}
+      <div className="bg-app-surface border border-app-border rounded-lg p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+        <div className="font-display text-5xl sm:text-6xl text-app-green" style={{ textShadow: '0 0 20px rgba(0,200,81,0.4)' }}>
+          {data.accuracy}%
+        </div>
+        <div>
+          <div className="text-app-text text-lg">
+            {data.correct} of {data.total} games correct
+          </div>
+          <div className="text-app-dim text-sm mt-1 font-mono">{season} season · completed games</div>
+        </div>
+      </div>
+
+      {/* By confidence tier */}
+      {data.by_tier.length > 0 && (
+        <div>
+          <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
+            Accuracy by Confidence Tier
+          </h2>
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm min-w-[420px]">
+              <thead>
+                <tr className="border-b border-app-border text-app-muted font-mono text-xs">
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Confidence</th>
+                  <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Record</th>
+                  <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Accuracy</th>
+                  <th className="px-4 py-3 w-32"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.by_tier.map((tier) => (
+                  <tr key={tier.tier} className="border-b border-app-border last:border-0 hover:bg-app-surface2 transition-colors">
+                    <td className="px-4 py-3 text-app-text font-medium font-mono">{tier.tier}%</td>
+                    <td className="px-4 py-3 text-right text-app-muted font-mono">
+                      {tier.correct}–{tier.total - tier.correct}
+                    </td>
+                    <td className="px-4 py-3 text-right text-app-green font-semibold font-mono">
+                      {tier.accuracy}%
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="h-2 bg-app-surface2 rounded-full overflow-hidden border border-app-border">
+                        <div
+                          className="h-full bg-app-green rounded-full"
+                          style={{ width: `${tier.accuracy}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* By week */}
+      {data.by_week.length > 0 && (
+        <div>
+          <h2 className="font-mono text-xs font-semibold text-app-green uppercase tracking-widest mb-3">
+            Week-by-Week
+          </h2>
+          <div className="bg-app-surface border border-app-border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm min-w-[420px]">
+              <thead>
+                <tr className="border-b border-app-border text-app-muted font-mono text-xs">
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Week</th>
+                  <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Record</th>
+                  <th className="text-right px-4 py-3 font-medium uppercase tracking-wider">Accuracy</th>
+                  <th className="px-4 py-3 w-32"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.by_week.map((w) => (
+                  <tr key={w.week} className="border-b border-app-border last:border-0 hover:bg-app-surface2 transition-colors">
+                    <td className="px-4 py-3 text-app-text font-medium font-mono">Week {w.week}</td>
+                    <td className="px-4 py-3 text-right text-app-muted font-mono">
+                      {w.correct}–{w.total - w.correct}
+                    </td>
+                    <td className="px-4 py-3 text-right text-app-green font-semibold font-mono">
+                      {w.accuracy}%
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="h-2 bg-app-surface2 rounded-full overflow-hidden border border-app-border">
+                        <div
+                          className="h-full bg-app-green rounded-full"
+                          style={{ width: `${w.accuracy}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {data.total === 0 && (
+        <div className="text-app-dim text-center py-8 font-mono text-sm">
+          No completed games found for the {season} season yet.
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function SeasonTracker() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const season = Number(searchParams.get('season') ?? CURRENT_SEASON)
+  const [mode, setMode] = useState<AccuracyMode>('winner')
+
+  const { data: winnerData, loading: winnerLoading, error: winnerError } = useAccuracy(season)
+  const { data: coverData, loading: coverLoading, error: coverError } = useCoverAccuracy(season)
+
+  const data = mode === 'winner' ? winnerData : coverData
+  const loading = mode === 'winner' ? winnerLoading : coverLoading
+  const error = mode === 'winner' ? winnerError : coverError
+
+  // Local draft so the input can hold an in-progress value (e.g. "2" while
+  // typing "2027") without snapping back to the last valid season on every
+  // keystroke — that revert-per-keystroke made the field feel uneditable,
+  // especially on mobile where there's no spinner to bypass typing.
+  const [seasonDraft, setSeasonDraft] = useState(String(season))
+
+  function handleSeasonChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setSeasonDraft(e.target.value)
+    const val = Number(e.target.value)
+    if (e.target.value !== '' && val >= 2000 && val <= 2099) {
+      setSearchParams({ season: String(val) })
+    }
+  }
+
+  function handleSeasonBlur() {
+    // Snap back to the last valid season if the field was left incomplete/invalid.
+    setSeasonDraft(String(season))
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto px-1 sm:px-0">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <h1 className="font-display text-3xl tracking-wider text-white">Season Accuracy</h1>
+          <div className="flex rounded overflow-hidden border border-app-border text-sm font-mono">
+            <button
+              onClick={() => setMode('winner')}
+              className={`px-3 py-1.5 transition-colors ${
+                mode === 'winner'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
+              }`}
+            >
+              Winner
+            </button>
+            <button
+              onClick={() => setMode('cover')}
+              className={`px-3 py-1.5 transition-colors border-l border-app-border ${
+                mode === 'cover'
+                  ? 'bg-app-green text-black font-semibold'
+                  : 'bg-app-surface text-app-muted hover:text-app-text'
+              }`}
+            >
+              Cover
+            </button>
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-app-muted font-mono">
+          Season
+          <input
+            type="number"
+            inputMode="numeric"
+            value={seasonDraft}
+            onChange={handleSeasonChange}
+            onBlur={handleSeasonBlur}
+            className="w-20 min-h-[44px] bg-app-surface border border-app-border rounded px-2 py-2 text-app-text text-sm font-mono focus:border-app-green focus:outline-none"
+            min={2000}
+            max={2099}
+          />
+        </label>
+      </div>
+
+      {error && <div className="text-app-red mb-4 font-mono text-sm">{error}</div>}
+
+      {loading ? (
+        <div className="text-app-muted font-mono text-sm">Loading accuracy data…</div>
+      ) : data ? (
+        <AccuracyTables data={data} season={season} />
+      ) : null}
+    </div>
+  )
+}

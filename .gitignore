@@ -1,0 +1,42 @@
+/claude-local.md
+.sfdx/
+
+# Secrets
+backend/.env
+
+# LLM prompt templates (supply your own)
+backend/prompts/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# Data
+data/*.db
+data/*.csv
+data/*/*.csv
+
+# Node
+node_modules/
+
+# Build
+dist/
+build/
+
+todo.txt
+
+# Local-only tooling
+validation
+Makefile.private
+CLAUDE.md
+.claude/
+.claudeignore
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.sfdx/
+data/*.json
+data/*.parquet

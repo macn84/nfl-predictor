@@ -1,0 +1,375 @@
+"""
+predictions.py - API endpoints for game predictions.
+
+GET /api/v1/weeks?season=YYYY           — list weeks with game counts + completion status
+GET /api/v1/predictions/{week}?season=  — all predictions for a week
+GET /api/v1/predictions/{week}/{game_id}?season= — single game detail (auth required)
+"""
+
+import math
+import time
+from datetime import date, datetime, timezone
+from typing import Optional
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel
+
+from app.api.utils import _game_id
+from app.auth.deps import get_current_user, get_optional_user
+from app.config import settings
+from app.data.cache import apply_weights, load_score_cache, lock_game_to_cache
+from app.data.loader import load_schedules
+from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
+from app.prediction.engine import predict
+from app.prediction.models import FactorResult
+from app.scheduler import _current_week
+from app.services.llm import evict_llm_response
+
+router = APIRouter(prefix="/api/v1")
+
+# Cooldown between self-healing forced refreshes triggered by _load_schedules_healed,
+# so a broken upstream (nflverse down, etc.) can't turn every /weeks or /predictions
+# request into a re-download.
+_FORCE_REFRESH_COOLDOWN_SECONDS = 15 * 60
+_last_forced_schedule_refresh = 0.0
+
+
+def _load_schedules_healed(seasons: list[int]) -> pd.DataFrame:
+    """Load schedules, forcing one refresh if a past game still shows no score.
+
+    `load_schedules()` only re-downloads from nflverse when explicitly asked
+    (the cron scheduler or a manual /refresh call) — otherwise it serves the
+    on-disk CSV forever. If neither has run since a game finished, its score
+    stays cached as null and the week never flips to `completed`. This heals
+    that case without depending on the scheduler having run.
+    """
+    global _last_forced_schedule_refresh
+    schedules = load_schedules(seasons)
+    today = datetime.now(timezone.utc).date()
+    gameday = pd.to_datetime(schedules["gameday"], errors="coerce").dt.date
+    stale = (
+        gameday.notna()
+        & (gameday < today)
+        & (schedules["home_score"].isna() | schedules["away_score"].isna())
+    )
+    if stale.any():
+        now = time.monotonic()
+        if now - _last_forced_schedule_refresh >= _FORCE_REFRESH_COOLDOWN_SECONDS:
+            _last_forced_schedule_refresh = now
+            schedules = load_schedules(seasons, force_refresh=True)
+    return schedules
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
+
+
+class WeekSummary(BaseModel):
+    """Metadata for a single NFL week."""
+
+    week: int
+    game_count: int
+    completed: bool  # True when every game in the week has a final score
+
+
+class WeeksResponse(BaseModel):
+    season: int
+    weeks: list[WeekSummary]
+    current_week: int | None = None  # earliest incomplete week, or the last week if none
+
+
+class GamePrediction(BaseModel):
+    """Full prediction for one game, including API metadata."""
+
+    game_id: str
+    season: int
+    week: int
+    gameday: str
+    home_team: str
+    away_team: str
+    home_score: int | None = None  # actual final score; None until the game completes
+    away_score: int | None = None
+    predicted_winner: str
+    confidence: float
+    factors: list[FactorResult]
+    locked: bool  # True when this prediction is the official prediction of record
+    refreshable: bool = False  # True for upcoming games that can be manually re-predicted
+    home_ml_juice: int | None = None  # American odds for home team moneyline (e.g. -145)
+    away_ml_juice: int | None = None  # American odds for away team moneyline (e.g. +125)
+    weather: GameWeatherOut | None = None  # predicted game-time weather (display only)
+
+
+class WeekPredictionsResponse(BaseModel):
+    season: int
+    week: int
+    games: list[GamePrediction]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+
+def _cache_key(home: str, away: str, game_date: date | None) -> str | None:
+    return f"{home}-{away}-{game_date}" if game_date else None
+
+
+
+
+def _predict_week_games(
+    season: int,
+    week: int,
+    schedules: pd.DataFrame,
+    score_cache: dict[str, dict] | None = None,
+    authenticated: bool = False,
+    auto_lock: bool = False,
+) -> list[GamePrediction]:
+    """Run predictions for every game in a given week.
+
+    Args:
+        season: NFL season year.
+        week: Week number.
+        schedules: Pre-loaded schedules DataFrame (must cover season-3..season).
+        score_cache: Pre-loaded score cache, or None to always call predict().
+        authenticated: Whether the caller has a valid auth token.
+        auto_lock: When True, upcoming games past their gameday that are not yet
+                   in the cache are automatically locked (first API call after kickoff).
+
+    Returns:
+        List of GamePrediction objects ordered as they appear in the schedule.
+    """
+    today = datetime.now(timezone.utc).date()
+    week_games = schedules[
+        (schedules["season"] == season) & (schedules["week"] == week)
+    ]
+    results: list[GamePrediction] = []
+
+    for _, row in week_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        gameday_raw = row.get("gameday", "")
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
+
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+
+        is_completed = (
+            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
+        )
+        key = _cache_key(home, away, game_date)
+        in_cache = score_cache is not None and key is not None and key in score_cache
+
+        home_ml_juice: int | None = None
+        away_ml_juice: int | None = None
+
+        if in_cache and score_cache is not None and key is not None:
+            # Use cached prediction of record (either manually locked or auto-locked)
+            weighted_sum, confidence = apply_weights(score_cache[key], settings.weights)
+            predicted_winner = home if weighted_sum >= 0 else away
+            factors: list[FactorResult] = []
+            locked = score_cache[key].get("locked", False)  # only True when explicitly locked
+            home_ml_juice = score_cache[key].get("home_ml_juice")
+            away_ml_juice = score_cache[key].get("away_ml_juice")
+        elif auto_lock and game_date is not None and game_date <= today and not is_completed:
+            # Game has kicked off but no final score yet and not in cache — auto-lock now
+            predicted_winner, confidence, raw_factors = lock_game_to_cache(
+                home, away, season, game_date, schedules
+            )
+            # Auto-lock just computed a fresh prediction — any cached LLM
+            # verdict for this game predates it and is now stale.
+            evict_llm_response(season, week, _game_id(home, away))
+            factors = [] if not authenticated else raw_factors
+            locked = True
+            bl = next((f for f in raw_factors if f.name == "betting_lines"), None)
+            if bl:
+                home_ml_juice = bl.supporting_data.get("home_ml_juice")
+                away_ml_juice = bl.supporting_data.get("away_ml_juice")
+        else:
+            pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+            predicted_winner = pred.predicted_winner
+            confidence = pred.confidence
+            factors = pred.factors if authenticated else []
+            locked = False
+            bl = next((f for f in pred.factors if f.name == "betting_lines"), None)
+            if bl:
+                home_ml_juice = bl.supporting_data.get("home_ml_juice")
+                away_ml_juice = bl.supporting_data.get("away_ml_juice")
+
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+        home_score = int(row["home_score"]) if pd.notna(row.get("home_score")) else None
+        away_score = int(row["away_score"]) if pd.notna(row.get("away_score")) else None
+
+        results.append(
+            GamePrediction(
+                game_id=_game_id(home, away),
+                season=season,
+                week=week,
+                gameday=gameday,
+                home_team=home,
+                away_team=away,
+                home_score=home_score,
+                away_score=away_score,
+                predicted_winner=predicted_winner,
+                confidence=confidence,
+                factors=factors,
+                locked=locked,
+                refreshable=not is_completed,
+                home_ml_juice=home_ml_juice,
+                away_ml_juice=away_ml_juice,
+                weather=weather,
+            )
+        )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/weeks", response_model=WeeksResponse)
+def list_weeks(
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+) -> WeeksResponse:
+    """Return all weeks that have at least one scheduled game for the season.
+
+    Each week includes a `completed` flag — True when every game in the week
+    has a recorded final score. Unauthenticated callers should filter to completed
+    weeks only; the frontend enforces this via the auth context.
+
+    `current_week` is the earliest week that still has an incomplete game (the
+    same rule the scheduler uses to decide what to keep pre-caching) — the
+    frontend uses it, rather than array position, to pick sensible defaults:
+    public view defaults to `current_week - 1`, authenticated to `current_week`.
+    """
+    seasons = list(range(2015, season + 1))
+    schedules = _load_schedules_healed(seasons)
+    season_games = schedules[schedules["season"] == season]
+    if season_games.empty:
+        return WeeksResponse(season=season, weeks=[])
+
+    weeks: list[WeekSummary] = []
+    for week_num, group in season_games.groupby("week"):
+        game_count = len(group)
+        completed = bool(
+            group["home_score"].notna().all() and group["away_score"].notna().all()
+        )
+        weeks.append(WeekSummary(week=int(week_num), game_count=game_count, completed=completed))
+
+    weeks.sort(key=lambda w: w.week)
+    current_week = _current_week(schedules, season)
+    return WeeksResponse(season=season, weeks=weeks, current_week=current_week)
+
+
+@router.get("/predictions/{week}", response_model=WeekPredictionsResponse)
+def get_week_predictions(
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+    current_user: Optional[str] = Depends(get_optional_user),
+) -> WeekPredictionsResponse:
+    """Return predictions for every game in a given week.
+
+    - Unauthenticated: factors are stripped from all responses.
+    - Authenticated: factors included; upcoming games past their gameday are
+      auto-locked to the cache on first call after kickoff.
+    """
+    authenticated = current_user is not None
+    seasons = list(range(2015, season + 1))
+    schedules = _load_schedules_healed(seasons)
+    score_cache = load_score_cache()
+    games = _predict_week_games(
+        season, week, schedules,
+        score_cache=score_cache,
+        authenticated=authenticated,
+        auto_lock=authenticated,
+    )
+    if not games:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No games found for season {season} week {week}",
+        )
+    return WeekPredictionsResponse(season=season, week=week, games=games)
+
+
+@router.get("/predictions/{week}/{game_id}", response_model=GamePrediction)
+def get_game_prediction(
+    week: int = Path(..., ge=1, le=22, description="NFL week number"),
+    game_id: str = Path(..., pattern=r"^[a-z]{2,4}-[a-z]{2,4}$"),
+    season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+    current_user: str = Depends(get_current_user),
+) -> GamePrediction:
+    """Return the full prediction (with factor drill-down) for a single game.
+
+    Requires authentication. game_id format: '{home}-{away}' lowercase, e.g. 'kc-buf'.
+    Always runs predict() live to return full supporting_data for the detail view.
+    For a completed game, betting_lines.calculate() itself skips any live odds
+    call once the game's date is in the past and not yet covered by the
+    historical CSV, so this no longer means a live odds-API hit on every load.
+    """
+    seasons = list(range(2015, season + 1))
+    schedules = load_schedules(seasons)
+    week_games = schedules[(schedules["season"] == season) & (schedules["week"] == week)]
+
+    for _, row in week_games.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        if _game_id(home, away) != game_id:
+            continue
+        gameday_raw = row.get("gameday", "")
+        is_nan = isinstance(gameday_raw, float) and math.isnan(gameday_raw)
+        gameday = "" if (gameday_raw is None or is_nan) else str(gameday_raw)
+        game_date: date | None = None
+        if gameday:
+            try:
+                game_date = date.fromisoformat(gameday)
+            except ValueError:
+                pass
+
+        # Check if this game has a locked prediction in cache
+        key = _cache_key(home, away, game_date)
+        score_cache = load_score_cache()
+        is_completed = (
+            pd.notna(row.get("home_score")) and pd.notna(row.get("away_score"))
+        )
+        in_cache = score_cache is not None and key is not None and key in score_cache
+        locked = in_cache and not is_completed
+
+        pred = predict(home, away, season, schedules=schedules, game_date=game_date)
+        weather = (
+            get_game_weather_cached(home, game_date)
+            if settings.weather_forecast_enabled
+            else None
+        )
+        return GamePrediction(
+            game_id=game_id,
+            season=season,
+            week=week,
+            gameday=gameday,
+            home_team=home,
+            away_team=away,
+            home_score=int(row["home_score"]) if pd.notna(row.get("home_score")) else None,
+            away_score=int(row["away_score"]) if pd.notna(row.get("away_score")) else None,
+            predicted_winner=pred.predicted_winner,
+            confidence=pred.confidence,
+            factors=pred.factors,
+            locked=locked,
+            refreshable=not is_completed,
+            weather=weather,
+        )
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Game '{game_id}' not found in season {season} week {week}",
+    )
