@@ -300,14 +300,15 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     # when nflverse releases the schedule early (e.g. May–August off-season).
     next_season = season + 1
     history_seasons = list(range(2015, next_season + 1))
-    schedules = load_schedules(history_seasons, force_refresh=True)
-    # qb_stats reads the [season-1, season] cache key; per-key files never refresh on their own.
-    load_schedules([season - 1, season], force_refresh=True)
-    team_stats = load_team_game_stats(history_seasons, force_refresh=True)
+    # Force-refresh only the live seasons; history is served from per-season files.
+    recent_seasons = [season, next_season]
+    load_schedules(recent_seasons, force_refresh=True)
+    load_team_game_stats(recent_seasons, force_refresh=True)
     load_weekly_stats([season], force_refresh=True)
-    load_weekly_stats([season - 1, season], force_refresh=True)  # key read by qb_stats
-    qb_stats.clear_caches()
     load_rosters([season], force_refresh=True)
+    qb_stats.clear_caches()
+    schedules = load_schedules(history_seasons)
+    team_stats = load_team_game_stats(history_seasons)
     accuracy_cache.clear()
     logger.info("Data refresh complete for seasons %s", history_seasons)
 

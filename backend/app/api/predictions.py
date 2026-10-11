@@ -57,7 +57,8 @@ def _load_schedules_healed(seasons: list[int]) -> pd.DataFrame:
         now = time.monotonic()
         if now - _last_forced_schedule_refresh >= _FORCE_REFRESH_COOLDOWN_SECONDS:
             _last_forced_schedule_refresh = now
-            schedules = load_schedules(seasons, force_refresh=True)
+            load_schedules([max(seasons)], force_refresh=True)
+            schedules = load_schedules(seasons)
     return schedules
 
 
