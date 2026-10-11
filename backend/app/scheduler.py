@@ -25,7 +25,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.api.utils import _game_id
 from app.config import settings
-from app.data import accuracy_cache
+from app.data import accuracy_cache, qb_stats
 from app.data.cache import (
     apply_opening_spread,
     load_cover_score_cache,
@@ -301,8 +301,12 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     next_season = season + 1
     history_seasons = list(range(2015, next_season + 1))
     schedules = load_schedules(history_seasons, force_refresh=True)
+    # qb_stats reads the [season-1, season] cache key; per-key files never refresh on their own.
+    load_schedules([season - 1, season], force_refresh=True)
     team_stats = load_team_game_stats(history_seasons, force_refresh=True)
     load_weekly_stats([season], force_refresh=True)
+    load_weekly_stats([season - 1, season], force_refresh=True)  # key read by qb_stats
+    qb_stats.clear_caches()
     load_rosters([season], force_refresh=True)
     accuracy_cache.clear()
     logger.info("Data refresh complete for seasons %s", history_seasons)

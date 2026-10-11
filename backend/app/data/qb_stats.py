@@ -23,7 +23,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from app.data.loader import load_schedules, load_weekly_stats
+from app.data.loader import load_rosters, load_schedules, load_weekly_stats
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,12 @@ class QbRating:
     cpoe: float                # Regression-stabilized completion % over expected
     effective_dropbacks: float  # Decay-weighted effective sample size
     is_backup: bool            # True if effective_dropbacks < backup_threshold
+
+
+def clear_caches() -> None:
+    """Drop in-process QB stat caches; call after a forced data refresh."""
+    _player_stats_cache.clear()
+    _def_epa_cache.clear()
 
 
 def _seasons_key(seasons: list[int]) -> str:
@@ -118,6 +124,31 @@ def _valid_weeks(
     return set(zip(prior["season"], prior["week"]))
 
 
+def _qb_on_roster(player_id: str, team: str, season: int) -> bool:
+    """Return False only when rosters positively show the QB is on a different team.
+
+    Missing roster data, or a player absent from the roster file, is treated as
+    "unknown" (True) so a stale or partial roster never blanks out a valid QB.
+
+    Args:
+        player_id: nflverse (gsis) player ID.
+        team: Team abbreviation the QB is being assigned to.
+        season: Season year of the roster snapshot.
+
+    Returns:
+        False if the QB is rostered this season but not by `team`; otherwise True.
+    """
+    try:
+        rosters = load_rosters([season])
+        rows = rosters[rosters["gsis_id"] == player_id]
+        if rows.empty:
+            return True
+        return bool((rows["team"] == team).any())
+    except Exception as exc:
+        logger.debug("Roster check skipped for %s/%s: %s", player_id, team, exc)
+        return True
+
+
 def get_team_starter_qb(
     team: str,
     season: int,
@@ -125,11 +156,16 @@ def get_team_starter_qb(
 ) -> tuple[str, str] | None:
     """Return (player_id, player_name) for the most recent starting QB.
 
-    Primary: find the QB listed in schedules for the most recent game before
-    game_date for this team.
+    Primary: walk back through this team's current-season games before
+    game_date and take the first one with a listed QB. A null QB on the most
+    recent game no longer short-circuits to the fallback.
 
-    Fallback: scan player stats for the QB with the highest total attempts
-    in the 8 weeks prior to game_date for this team.
+    Fallback: the QB with the most attempts for this team in the current
+    season's player stats (prior-season rows are ignored, since a QB who has
+    since moved teams would still carry the old team label there).
+
+    Every candidate is cross-checked against current-season rosters; a QB
+    rostered by a different team is rejected.
 
     Args:
         team: NFL team abbreviation (e.g. 'KC').
@@ -153,7 +189,7 @@ def get_team_starter_qb(
     home_games = prior[prior["home_team"] == team].copy()
     away_games = prior[prior["away_team"] == team].copy()
 
-    # Combine home + away, pick most recent.
+    # Combine home + away, newest first.
     home_games = home_games.assign(
         _qb_id=home_games["home_qb_id"], _qb_name=home_games["home_qb_name"]
     )
@@ -163,26 +199,31 @@ def get_team_starter_qb(
     all_games = pd.concat([home_games, away_games], ignore_index=True)
 
     if not all_games.empty:
-        latest = all_games.sort_values("gameday_date").iloc[-1]
-        qb_id = latest["_qb_id"]
-        qb_name = latest["_qb_name"]
-        if pd.notna(qb_id) and pd.notna(qb_name) and str(qb_id).strip():
-            return str(qb_id), str(qb_name)
+        for _, game in all_games.sort_values("gameday_date", ascending=False).iterrows():
+            qb_id, qb_name = game["_qb_id"], game["_qb_name"]
+            if pd.isna(qb_id) or pd.isna(qb_name) or not str(qb_id).strip():
+                continue
+            if _qb_on_roster(str(qb_id), team, season):
+                return str(qb_id), str(qb_name)
+            logger.warning(
+                "Schedule QB %s for %s is rostered elsewhere — ignoring", qb_name, team
+            )
+            break  # older games name the same stale QB; go straight to fallback
 
-    # Fallback: highest attempts in last 8 weeks of player stats.
+    # Fallback: highest attempts for this team in current-season player stats.
     logger.debug("Schedule QB lookup failed for %s %d — falling back to player stats", team, season)
     try:
-        qb_stats = _load_qb_stats(seasons)
-        valid = _valid_weeks(seasons, game_date)
+        qb_stats = _load_qb_stats([season])
+        valid = _valid_weeks([season], game_date)
         team_qb = qb_stats[
             (qb_stats["team"] == team)
             & qb_stats.apply(lambda r: (int(r["season"]), int(r["week"])) in valid, axis=1)
         ]
         if not team_qb.empty:
-            # Most attempts in recent 8 weeks.
-            recent = team_qb.sort_values(["season", "week"]).tail(8 * 2)  # rough slice
-            best = recent.groupby(["player_id", "player_name"])["attempts"].sum().idxmax()
-            return str(best[0]), str(best[1])
+            totals = team_qb.groupby(["player_id", "player_name"])["attempts"].sum()
+            for (pid, pname), _ in totals.sort_values(ascending=False).items():
+                if _qb_on_roster(str(pid), team, season):
+                    return str(pid), str(pname)
     except Exception as exc:
         logger.warning("Player stats QB fallback failed for %s: %s", team, exc)
 
