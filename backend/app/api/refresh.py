@@ -56,13 +56,11 @@ def refresh_data(body: RefreshRequest, _: str = Depends(get_current_user)) -> Re
         RefreshResponse with the number of rows in the refreshed schedule.
     """
     history_seasons = list(range(2015, body.season + 1))
-    schedules = load_schedules(history_seasons, force_refresh=True)
-    # qb_stats reads the [season-1, season] cache key; per-key files never refresh on their own.
-    load_schedules([body.season - 1, body.season], force_refresh=True)
+    load_schedules([body.season], force_refresh=True)
     load_weekly_stats([body.season], force_refresh=True)
-    load_weekly_stats([body.season - 1, body.season], force_refresh=True)  # key read by qb_stats
-    qb_stats.clear_caches()
     load_rosters([body.season], force_refresh=True)
+    qb_stats.clear_caches()
+    schedules = load_schedules(history_seasons)
     accuracy_cache.clear()
     return RefreshResponse(
         status="ok",

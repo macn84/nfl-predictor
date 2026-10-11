@@ -1,11 +1,19 @@
 """
 loader.py - Data loading and CSV caching for nflreadpy datasets.
 
-Each loader checks for a cached CSV before hitting nflverse. Pass
-force_refresh=True to re-download regardless of cache state.
+Cache layout: one CSV per (dataset, season), e.g. ``schedules_2026.csv``.
+A request for several seasons is served by concatenating the per-season
+files, so refreshing a season refreshes it for every caller regardless of the
+season list they pass. (The old layout keyed files by the whole season list,
+which left rarely-refreshed list keys frozen at stale data.)
+
+Pass force_refresh=True to re-download every requested season. Seasons that
+nflverse has not published yet are skipped and never written to disk.
 """
 
+import logging
 import os
+from collections.abc import Callable
 
 import nflreadpy as nfl
 import pandas as pd
@@ -13,24 +21,87 @@ import pandas as pd
 from app.config import settings
 from app.data.job_status import record_job_run
 
+logger = logging.getLogger(__name__)
 
-def _record_nflverse(df: pd.DataFrame) -> None:
-    """Record an nflverse download attempt: ok when it returned rows."""
-    record_job_run(
-        "nflverse",
-        ok=not df.empty,
-        error=None if not df.empty else "nflverse download returned no rows",
-    )
-
-_schedules_memory: dict[str, pd.DataFrame] = {}
-_team_game_stats_memory: dict[str, pd.DataFrame] = {}
-_weekly_stats_memory: dict[str, pd.DataFrame] = {}
+# Per-season in-memory caches, keyed by season year.
+_schedules_memory: dict[int, pd.DataFrame] = {}
+_team_game_stats_memory: dict[int, pd.DataFrame] = {}
+_weekly_stats_memory: dict[int, pd.DataFrame] = {}
+_rosters_memory: dict[int, pd.DataFrame] = {}
 
 
 def _cache_path(name: str) -> str:
     """Return absolute path for a named cache file."""
     os.makedirs(settings.cache_dir, exist_ok=True)
     return os.path.join(settings.cache_dir, f"{name}.csv")
+
+
+def _load_per_season(
+    kind: str,
+    seasons: list[int],
+    fetch: Callable[[int], pd.DataFrame],
+    force_refresh: bool,
+    memory: dict[int, pd.DataFrame],
+) -> pd.DataFrame:
+    """Load a dataset one season at a time and concatenate the results.
+
+    Per season the lookup order is in-memory dict, then ``{kind}_{season}.csv``,
+    then ``fetch(season)`` from nflverse. A failed or empty download is never
+    written to disk; when forced, the previously cached copy (if any) is kept.
+
+    Args:
+        kind: Dataset prefix for the cache file name (e.g. "schedules").
+        seasons: Season years requested; duplicates are ignored.
+        fetch: Downloads a single season from nflverse as a DataFrame.
+        force_refresh: If True, re-download every requested season.
+        memory: Per-season in-memory cache for this dataset.
+
+    Returns:
+        DataFrame of all available requested seasons (empty if none exist).
+    """
+    frames: list[pd.DataFrame] = []
+    attempted = False
+    downloaded = False
+
+    for season in sorted(set(seasons)):
+        path = _cache_path(f"{kind}_{season}")
+        if not force_refresh:
+            if season in memory:
+                frames.append(memory[season])
+                continue
+            if os.path.exists(path):
+                memory[season] = pd.read_csv(path, low_memory=False)
+                frames.append(memory[season])
+                continue
+
+        attempted = True
+        try:
+            df = fetch(season)
+        except Exception as exc:  # nflverse 404s for unpublished seasons
+            logger.info("nflverse has no %s data for %d: %s", kind, season, exc)
+            df = pd.DataFrame()
+
+        if not df.empty:
+            downloaded = True
+            df.to_csv(path, index=False)
+            memory[season] = df
+            frames.append(df)
+        elif season in memory:
+            frames.append(memory[season])
+        elif os.path.exists(path):
+            memory[season] = pd.read_csv(path, low_memory=False)
+            frames.append(memory[season])
+
+    if attempted:
+        record_job_run(
+            "nflverse",
+            ok=downloaded,
+            error=None if downloaded else f"nflverse {kind} download returned no rows",
+        )
+
+    if not frames:
+        return pd.DataFrame()
+    return frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
 
 
 def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFrame:
@@ -45,24 +116,13 @@ def load_schedules(seasons: list[int], force_refresh: bool = False) -> pd.DataFr
         home_team, away_team, home_score, away_score, result,
         gameday, spread_line, total_line.
     """
-    name = f"schedules_{'_'.join(map(str, sorted(seasons)))}"
-    if not force_refresh and name in _schedules_memory:
-        return _schedules_memory[name]
-    path = _cache_path(name)
-    if not force_refresh and os.path.exists(path):
-        df = pd.read_csv(path, low_memory=False)
-        _schedules_memory[name] = df
-        return df
-    try:
-        df = nfl.load_schedules(seasons).to_pandas()
-    except Exception:
-        # Latest season may not be published yet — retry without it
-        fallback = [s for s in seasons if s < max(seasons)]
-        df = nfl.load_schedules(fallback).to_pandas() if fallback else pd.DataFrame()
-    _record_nflverse(df)
-    df.to_csv(path, index=False)
-    _schedules_memory[name] = df
-    return df
+    return _load_per_season(
+        "schedules",
+        seasons,
+        lambda season: nfl.load_schedules([season]).to_pandas(),
+        force_refresh,
+        _schedules_memory,
+    )
 
 
 def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.DataFrame:
@@ -75,28 +135,13 @@ def load_weekly_stats(seasons: list[int], force_refresh: bool = False) -> pd.Dat
     Returns:
         DataFrame with one row per player per week.
     """
-    name = f"weekly_{'_'.join(map(str, sorted(seasons)))}"
-    if not force_refresh and name in _weekly_stats_memory:
-        return _weekly_stats_memory[name]
-    path = _cache_path(name)
-    if not force_refresh and os.path.exists(path):
-        df = pd.read_csv(path, low_memory=False)
-        _weekly_stats_memory[name] = df
-        return df
-    remaining = sorted(seasons)
-    df = pd.DataFrame()
-    while remaining:
-        try:
-            df = nfl.load_player_stats(remaining).to_pandas()
-            break
-        except Exception:
-            if len(remaining) <= 1:
-                break
-            remaining = remaining[:-1]
-    _record_nflverse(df)
-    df.to_csv(path, index=False)
-    _weekly_stats_memory[name] = df
-    return df
+    return _load_per_season(
+        "weekly",
+        seasons,
+        lambda season: nfl.load_player_stats([season]).to_pandas(),
+        force_refresh,
+        _weekly_stats_memory,
+    )
 
 
 def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.DataFrame:
@@ -111,31 +156,13 @@ def load_team_game_stats(seasons: list[int], force_refresh: bool = False) -> pd.
         team, opponent_team, passing_yards, rushing_yards, attempts, carries.
         Used to compute NYPP/SANYPP inside the form factor.
     """
-    name = f"team_game_stats_{'_'.join(map(str, sorted(seasons)))}"
-    if not force_refresh and name in _team_game_stats_memory:
-        return _team_game_stats_memory[name]
-    path = _cache_path(name)
-    if not force_refresh and os.path.exists(path):
-        df = pd.read_csv(path, low_memory=False)
-        _team_game_stats_memory[name] = df
-        return df
-    # In the offseason the latest 1-2 season files don't exist yet on nflverse
-    # (e.g. stats_team_week_2026.parquet returns 404 until games are played).
-    # Keep dropping the newest season until the download succeeds.
-    remaining = sorted(seasons)
-    df = pd.DataFrame()
-    while remaining:
-        try:
-            df = nfl.load_team_stats(remaining, summary_level="week").to_pandas()
-            break
-        except Exception:
-            if len(remaining) <= 1:
-                break
-            remaining = remaining[:-1]
-    _record_nflverse(df)
-    df.to_csv(path, index=False)
-    _team_game_stats_memory[name] = df
-    return df
+    return _load_per_season(
+        "team_game_stats",
+        seasons,
+        lambda season: nfl.load_team_stats([season], summary_level="week").to_pandas(),
+        force_refresh,
+        _team_game_stats_memory,
+    )
 
 
 def load_rosters(seasons: list[int], force_refresh: bool = False) -> pd.DataFrame:
@@ -148,11 +175,10 @@ def load_rosters(seasons: list[int], force_refresh: bool = False) -> pd.DataFram
     Returns:
         DataFrame with player roster entries.
     """
-    name = f"rosters_{'_'.join(map(str, sorted(seasons)))}"
-    path = _cache_path(name)
-    if not force_refresh and os.path.exists(path):
-        return pd.read_csv(path, low_memory=False)
-    df = nfl.load_rosters(seasons).to_pandas()
-    _record_nflverse(df)
-    df.to_csv(path, index=False)
-    return df
+    return _load_per_season(
+        "rosters",
+        seasons,
+        lambda season: nfl.load_rosters([season]).to_pandas(),
+        force_refresh,
+        _rosters_memory,
+    )
