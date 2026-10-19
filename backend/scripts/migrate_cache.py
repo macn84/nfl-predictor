@@ -16,7 +16,7 @@ import re
 import pandas as pd
 
 from app.config import settings
-from app.scheduler import _current_nfl_season
+from app.data.season import current_nfl_season
 
 KINDS = ("schedules", "weekly", "team_game_stats", "rosters")
 # Legacy file names end in two or more underscore-joined 4-digit years.
@@ -25,14 +25,17 @@ _LEGACY_RE = re.compile(r"^(?P<kind>[a-z_]+?)_(?P<years>\d{4}(?:_\d{4})+)$")
 
 def main() -> None:
     """Split legacy combined cache files into per-season files."""
-    current = _current_nfl_season()
+    current = current_nfl_season()
     written = 0
     legacy_files: list[str] = []
 
     for kind in KINDS:
         paths = glob.glob(os.path.join(settings.cache_dir, f"{kind}_*.csv"))
-        legacy = [p for p in paths if (m := _LEGACY_RE.match(os.path.basename(p)[:-4]))
-                  and m["kind"] == kind]
+        legacy: list[str] = []
+        for p in paths:
+            match = _LEGACY_RE.match(os.path.basename(p)[:-4])
+            if match and match["kind"] == kind:
+                legacy.append(p)
         legacy_files += legacy
         # Newest legacy file wins when several contain the same season.
         for path in sorted(legacy, key=os.path.getmtime, reverse=True):

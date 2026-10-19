@@ -25,6 +25,7 @@ def patch_data(monkeypatch):
     """Return a helper that installs fake schedules/rosters/stats loaders."""
 
     def _install(sched, roster, stats=None):
+        qb_stats.clear_caches()  # roster lookup is cached per season
         monkeypatch.setattr(qb_stats, "load_schedules", lambda seasons: sched)
         monkeypatch.setattr(qb_stats, "load_rosters", lambda seasons: roster)
         if stats is not None:
@@ -82,8 +83,23 @@ def test_no_prior_games_returns_none_without_stats(patch_data):
 
 
 def test_missing_roster_data_does_not_reject(monkeypatch):
+    qb_stats.clear_caches()
     def boom(seasons):
         raise RuntimeError("no roster file")
 
     monkeypatch.setattr(qb_stats, "load_rosters", boom)
     assert qb_stats._qb_on_roster("A", "LV", 2026) is True
+
+
+def test_empty_roster_result_is_cached(monkeypatch):
+    qb_stats.clear_caches()
+    calls = []
+
+    def empty(seasons):
+        calls.append(seasons)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(qb_stats, "load_rosters", empty)
+    assert qb_stats._qb_on_roster("A", "LV", 2026) is True
+    assert qb_stats._qb_on_roster("B", "KC", 2026) is True
+    assert len(calls) == 1

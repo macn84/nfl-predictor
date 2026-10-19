@@ -25,7 +25,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.api.utils import _game_id
 from app.config import settings
-from app.data import accuracy_cache, qb_stats
 from app.data.cache import (
     apply_opening_spread,
     load_cover_score_cache,
@@ -33,7 +32,9 @@ from app.data.cache import (
     write_cover_score_cache,
     write_score_cache,
 )
-from app.data.loader import load_rosters, load_schedules, load_team_game_stats, load_weekly_stats
+from app.data.loader import load_schedules, load_team_game_stats
+from app.data.refresh import refresh_nflverse
+from app.data.season import current_nfl_season
 from app.data.spreads import get_spread
 from app.data.weather_cache import get_game_weather_cached
 from app.prediction.engine import predict, predict_cover
@@ -48,20 +49,6 @@ _scheduler: BackgroundScheduler | None = None
 # ---------------------------------------------------------------------------
 # Season / week helpers
 # ---------------------------------------------------------------------------
-
-
-def _current_nfl_season() -> int:
-    """Return the current NFL season year.
-
-    NFL seasons end in February (Super Bowl). March onward belongs to the
-    upcoming season — the schedule is typically released in April/May and
-    pre-season caching should target the new year.
-
-    Returns:
-        Four-digit season year (e.g. 2026).
-    """
-    today = date.today()
-    return today.year if today.month >= 3 else today.year - 1
 
 
 def _current_week(schedules: pd.DataFrame, season: int) -> int | None:
@@ -290,7 +277,7 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
         backfill,
     )
 
-    season = _current_nfl_season()
+    season = current_nfl_season()
     logger.info("Target season: %d", season)
 
     # ------------------------------------------------------------------
@@ -302,14 +289,14 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
     history_seasons = list(range(2015, next_season + 1))
     # Force-refresh only the live seasons; history is served from per-season files.
     recent_seasons = [season, next_season]
-    load_schedules(recent_seasons, force_refresh=True)
-    load_team_game_stats(recent_seasons, force_refresh=True)
-    load_weekly_stats([season], force_refresh=True)
-    load_rosters([season], force_refresh=True)
-    qb_stats.clear_caches()
+    refresh_nflverse(
+        schedules=recent_seasons,
+        team_stats=recent_seasons,
+        weekly=[season],
+        rosters=[season],
+    )
     schedules = load_schedules(history_seasons)
     team_stats = load_team_game_stats(history_seasons)
-    accuracy_cache.clear()
     logger.info("Data refresh complete for seasons %s", history_seasons)
 
     season_games = schedules[schedules["season"] == season]

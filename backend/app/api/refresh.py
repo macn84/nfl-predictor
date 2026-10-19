@@ -14,15 +14,16 @@ from pydantic import BaseModel
 import app.prediction.factors.betting_lines as _bl
 from app.api.utils import _game_id
 from app.auth.deps import get_current_user
-from app.data import accuracy_cache, qb_stats
 from app.data.cache import (
     load_cover_score_cache,
     load_score_cache,
     write_cover_score_cache,
     write_score_cache,
 )
-from app.data.loader import load_rosters, load_schedules, load_weekly_stats
-from app.scheduler import _current_nfl_season, _current_week, _parse_gameday
+from app.data.loader import load_schedules
+from app.data.refresh import refresh_nflverse
+from app.data.season import current_nfl_season
+from app.scheduler import _current_week, _parse_gameday
 from app.services.llm import evict_llm_response
 
 router = APIRouter(prefix="/api/v1")
@@ -56,12 +57,10 @@ def refresh_data(body: RefreshRequest, _: str = Depends(get_current_user)) -> Re
         RefreshResponse with the number of rows in the refreshed schedule.
     """
     history_seasons = list(range(2015, body.season + 1))
-    load_schedules([body.season], force_refresh=True)
-    load_weekly_stats([body.season], force_refresh=True)
-    load_rosters([body.season], force_refresh=True)
-    qb_stats.clear_caches()
+    refresh_nflverse(
+        schedules=[body.season], weekly=[body.season], rosters=[body.season]
+    )
     schedules = load_schedules(history_seasons)
-    accuracy_cache.clear()
     return RefreshResponse(
         status="ok",
         season=body.season,
@@ -93,7 +92,7 @@ def refresh_odds(_: str = Depends(get_current_user)) -> OddsRefreshResponse:
     # cover_score_cache.json so the next prediction request fetches fresh data.
     # Mirrors the scheduler's eviction logic. opening_spread is preserved on
     # evicted entries so the first-captured opening line is not lost.
-    season = _current_nfl_season()
+    season = current_nfl_season()
     history_seasons = list(range(2015, season + 1))
     schedules = load_schedules(history_seasons)
     current_week = _current_week(schedules, season)

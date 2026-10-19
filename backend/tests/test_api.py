@@ -342,8 +342,7 @@ class TestRefresh:
     def test_successful_refresh(self, schedules):
         with (
             patch("app.api.refresh.load_schedules", _mock_load_schedules(schedules)),
-            patch("app.api.refresh.load_weekly_stats", return_value=pd.DataFrame()),
-            patch("app.api.refresh.load_rosters", return_value=pd.DataFrame()),
+            patch("app.api.refresh.refresh_nflverse"),
         ):
             resp = client.post("/api/v1/refresh", json={"season": 2024})
         assert resp.status_code == 200

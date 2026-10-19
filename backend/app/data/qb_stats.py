@@ -17,6 +17,7 @@ Design:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 
@@ -38,6 +39,9 @@ _MIN_GAME_ATTEMPTS: int = 10
 _player_stats_cache: dict[str, pd.DataFrame] = {}
 _def_epa_cache: dict[str, dict[tuple[int, str], float]] = {}
 
+# season -> {gsis_id: teams that rostered that player}; built once per season.
+_roster_teams_cache: dict[int, dict[str, frozenset[str]]] = {}
+
 
 @dataclass
 class QbRating:
@@ -56,6 +60,7 @@ def clear_caches() -> None:
     """Drop in-process QB stat caches; call after a forced data refresh."""
     _player_stats_cache.clear()
     _def_epa_cache.clear()
+    _roster_teams_cache.clear()
 
 
 def _seasons_key(seasons: list[int]) -> str:
@@ -139,14 +144,42 @@ def _qb_on_roster(player_id: str, team: str, season: int) -> bool:
         False if the QB is rostered this season but not by `team`; otherwise True.
     """
     try:
-        rosters = load_rosters([season])
-        rows = rosters[rosters["gsis_id"] == player_id]
-        if rows.empty:
-            return True
-        return bool((rows["team"] == team).any())
+        if season not in _roster_teams_cache:
+            rosters = load_rosters([season])
+            # Cache an empty map for missing data too, so each of the 32 teams
+            # doesn't re-attempt the load; clear_caches() lets a refresh retry.
+            _roster_teams_cache[season] = (
+                {}
+                if rosters.empty or "gsis_id" not in rosters.columns
+                else {pid: frozenset(grp["team"]) for pid, grp in rosters.groupby("gsis_id")}
+            )
+        teams = _roster_teams_cache[season].get(player_id)
     except Exception as exc:
         logger.debug("Roster check skipped for %s/%s: %s", player_id, team, exc)
         return True
+    return teams is None or team in teams
+
+
+def _schedule_qb_candidates(prior: pd.DataFrame, team: str) -> Iterator[tuple[str, str]]:
+    """Yield (qb_id, qb_name) for `team` from prior games, newest first.
+
+    Games with a null or blank QB id/name are skipped.
+
+    Args:
+        prior: Current-season schedule rows already filtered to before game_date.
+        team: NFL team abbreviation.
+    """
+    for _, game in prior.sort_values("gameday_date", ascending=False).iterrows():
+        if game["home_team"] == team:
+            side = "home"
+        elif game["away_team"] == team:
+            side = "away"
+        else:
+            continue
+        qb_id, qb_name = game[f"{side}_qb_id"], game[f"{side}_qb_name"]
+        if pd.isna(qb_id) or pd.isna(qb_name) or not str(qb_id).strip():
+            continue
+        yield str(qb_id), str(qb_name)
 
 
 def get_team_starter_qb(
@@ -186,29 +219,15 @@ def get_team_starter_qb(
     sched["gameday_date"] = pd.to_datetime(sched["gameday"]).dt.date
     prior = sched[sched["gameday_date"] < game_date]
 
-    home_games = prior[prior["home_team"] == team].copy()
-    away_games = prior[prior["away_team"] == team].copy()
-
-    # Combine home + away, newest first.
-    home_games = home_games.assign(
-        _qb_id=home_games["home_qb_id"], _qb_name=home_games["home_qb_name"]
-    )
-    away_games = away_games.assign(
-        _qb_id=away_games["away_qb_id"], _qb_name=away_games["away_qb_name"]
-    )
-    all_games = pd.concat([home_games, away_games], ignore_index=True)
-
-    if not all_games.empty:
-        for _, game in all_games.sort_values("gameday_date", ascending=False).iterrows():
-            qb_id, qb_name = game["_qb_id"], game["_qb_name"]
-            if pd.isna(qb_id) or pd.isna(qb_name) or not str(qb_id).strip():
-                continue
-            if _qb_on_roster(str(qb_id), team, season):
-                return str(qb_id), str(qb_name)
-            logger.warning(
-                "Schedule QB %s for %s is rostered elsewhere — ignoring", qb_name, team
-            )
-            break  # older games name the same stale QB; go straight to fallback
+    # The newest schedule QB decides: older games name the same stale QB, so a
+    # rostered-elsewhere result goes straight to the fallback.
+    latest = next(_schedule_qb_candidates(prior, team), None)
+    if latest is not None:
+        if _qb_on_roster(latest[0], team, season):
+            return latest
+        logger.warning(
+            "Schedule QB %s for %s is rostered elsewhere — ignoring", latest[1], team
+        )
 
     # Fallback: highest attempts for this team in current-season player stats.
     logger.debug("Schedule QB lookup failed for %s %d — falling back to player stats", team, season)
