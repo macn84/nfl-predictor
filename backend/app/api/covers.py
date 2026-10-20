@@ -20,7 +20,7 @@ from app.data.cache import apply_weights, load_cover_score_cache, load_score_cac
 from app.data.loader import load_schedules
 from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
-from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict_cover
+from app.prediction.engine import compute_cover_confidence, predict_cover
 from app.prediction.models import CoverPredictionResult, FactorResult
 
 router = APIRouter(prefix="/api/v1")
@@ -116,7 +116,7 @@ def _cover_week_games(
 
         if in_cache and score_cache is not None and cache_key is not None:
             cached = score_cache[cache_key]
-            weighted_sum, _ = apply_weights(cached, settings.cover_weights)
+            weighted_sum, _ = apply_weights(cached, settings.cover_weights, cover_mode=True)
             # Prefer live market spread; fall back to historical closing line.
             # For upcoming games, "spread" (historical CSV) is None but "live_spread"
             # holds the current bookmaker line from OddspaPI or The Odds API.
@@ -130,10 +130,7 @@ def _cover_week_games(
             # Recompute cover confidence using the margin-disagreement formula, not
             # the winner-style |weighted_sum| confidence returned by apply_weights().
             if predicted_margin is not None and cached_spread is not None:
-                cover_confidence = min(
-                    50.0 + abs(predicted_margin - cached_spread) * COVER_CONFIDENCE_SCALE,
-                    100.0,
-                )
+                cover_confidence = compute_cover_confidence(predicted_margin, cached_spread)
             else:
                 cover_confidence = 50.0
             predicted_cover: str | None = (

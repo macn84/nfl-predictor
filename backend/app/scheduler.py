@@ -33,6 +33,7 @@ from app.data.cache import (
     write_score_cache,
 )
 from app.data.loader import load_schedules, load_team_game_stats
+from app.data.published import cover_snapshot, stamp_published, winner_snapshot
 from app.data.refresh import refresh_nflverse
 from app.data.season import current_nfl_season
 from app.data.spreads import get_spread
@@ -411,6 +412,8 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
         old_cover_opening_spread: float | None = None
         old_cover_opening_spread_ts: str | None = None
         old_cover_live_spread: float | None = None
+        old_entry: dict | None = None
+        old_cover_entry: dict | None = None
         if is_current_week:
             # Always evict current-week entries so each scheduler run fetches
             # fresh odds and weather — but preserve the captured opening spread.
@@ -446,6 +449,11 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                     if new_entry.get("live_spread") is None and old_live_spread is not None:
                         new_entry["live_spread"] = old_live_spread
                     apply_opening_spread(new_entry, new_entry.get("live_spread"))
+                    # Carry the frozen pre-kickoff pick across the eviction, or
+                    # refresh it if game day hasn't arrived (see published.py).
+                    stamp_published(
+                        new_entry, old_entry, game_date, winner_snapshot(new_entry, home, away)
+                    )
             if added:
                 week_new += 1
                 newly_cached += 1
@@ -474,6 +482,12 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                     ):
                         new_cover_entry["live_spread"] = old_cover_live_spread
                     apply_opening_spread(new_cover_entry, new_cover_entry.get("live_spread"))
+                    stamp_published(
+                        new_cover_entry,
+                        old_cover_entry,
+                        game_date,
+                        cover_snapshot(new_cover_entry, home, away),
+                    )
         except Exception:
             logger.warning(
                 "Failed to cover-cache upcoming game %s vs %s (%s)",
@@ -512,6 +526,8 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
             old_cover_opening_spread: float | None = None
             old_cover_opening_spread_ts: str | None = None
             old_cover_live_spread: float | None = None
+            old_entry = None
+            old_cover_entry = None
             if is_current_week:
                 # Evict so each scheduler run fetches fresh odds for the imminent week.
                 old_entry = existing.pop(cache_key, None)
@@ -546,6 +562,9 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                         if new_entry.get("live_spread") is None and old_live_spread is not None:
                             new_entry["live_spread"] = old_live_spread
                         apply_opening_spread(new_entry, new_entry.get("live_spread"))
+                        stamp_published(
+                            new_entry, old_entry, game_date, winner_snapshot(new_entry, home, away)
+                        )
                 if added:
                     newly_cached += 1
                     next_new += 1
@@ -573,6 +592,12 @@ def run_scheduled_refresh(backfill: bool = False) -> dict:
                         ):
                             new_cover_entry["live_spread"] = old_cover_live_spread
                         apply_opening_spread(new_cover_entry, new_cover_entry.get("live_spread"))
+                        stamp_published(
+                            new_cover_entry,
+                            old_cover_entry,
+                            game_date,
+                            cover_snapshot(new_cover_entry, home, away),
+                        )
             except Exception:
                 logger.warning(
                     "Failed to cover-cache next-season game %s vs %s (%s)",

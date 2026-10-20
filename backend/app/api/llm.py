@@ -26,7 +26,7 @@ from app.data.cache import apply_weights, load_score_cache
 from app.data.injuries import get_injury_report
 from app.data.loader import load_schedules
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
-from app.prediction.engine import COVER_CONFIDENCE_SCALE, predict, predict_cover
+from app.prediction.engine import compute_cover_confidence, predict, predict_cover
 from app.scheduler import _parse_gameday
 from app.services.game_facts import build_game_facts, lookup_starting_qbs
 from app.services.llm import AnalysisMode, analyze_game, format_top3_factors, get_week_responses
@@ -152,7 +152,7 @@ def _build_llm_game_payload(
         winner_sum, winner_confidence = apply_weights(cached, settings.weights)
         predicted_winner = home if winner_sum >= 0 else away
 
-        cover_sum, _ = apply_weights(cached, settings.cover_weights)
+        cover_sum, _ = apply_weights(cached, settings.cover_weights, cover_mode=True)
         # Same precedence as the covers endpoint / UI: live line, else historical.
         # `is not None` (not `or`) so a pick'em line of 0.0 is not discarded.
         _live = cached.get("live_spread")
@@ -160,9 +160,7 @@ def _build_llm_game_payload(
         if spread is not None:
             predicted_margin: float | None = COVER_MARGIN_SLOPE * cover_sum + COVER_MARGIN_INTERCEPT
             predicted_cover: str | None = home if predicted_margin > spread else away
-            cover_confidence = min(
-                50.0 + abs(predicted_margin - spread) * COVER_CONFIDENCE_SCALE, 100.0
-            )
+            cover_confidence = compute_cover_confidence(predicted_margin, spread)
         else:
             predicted_margin = None
             predicted_cover = predicted_winner

@@ -15,7 +15,7 @@ which come from Settings (backend/.env).
 from itertools import combinations
 from typing import Literal, NamedTuple
 
-from app.prediction.engine import COVER_CONFIDENCE_SCALE
+from app.prediction.engine import compute_cover_confidence
 
 TEASER_KEY_NUMBERS = (3, 7)
 
@@ -100,8 +100,7 @@ def evaluate_leg(
     # the same margin-disagreement formula as predict_cover() (engine.py) —
     # predicted_margin itself is unaffected by the line (see engine.py).
     teased_spread = -teased_line if team == "home" else teased_line
-    margin_disagreement = abs(predicted_margin - teased_spread)
-    confidence = round(min(50.0 + margin_disagreement * COVER_CONFIDENCE_SCALE, 100.0), 1)
+    confidence = compute_cover_confidence(predicted_margin, teased_spread)
     picked_team: str | None = (
         home_team if predicted_margin > teased_spread
         else away_team if predicted_margin < teased_spread

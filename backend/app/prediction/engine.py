@@ -38,6 +38,27 @@ from app.prediction.models import CoverPredictionResult, FactorResult, Predictio
 COVER_CONFIDENCE_SCALE = 2.5
 
 
+def compute_cover_confidence(predicted_margin: float, spread: float) -> float:
+    """Map model-vs-market margin disagreement to a 50..100 cover confidence.
+
+    Single source of truth for cover confidence — predict_cover(), the covers
+    endpoint (cached path), cover accuracy tiering and the LLM facts block all
+    call this so the number on a cover card and the tier it is graded in agree.
+    Unlike winner confidence (|weighted_sum|), this rewards how strongly the
+    model's margin disagrees with the line, which is what a cover pick bets on.
+
+    Args:
+        predicted_margin: Cover-calibrated predicted home margin
+            (COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT).
+        spread: Line used for the pick (nflverse convention: positive = home
+            favoured). Used as-is — never negated.
+
+    Returns:
+        Confidence in [50, 100], rounded to one decimal place.
+    """
+    return round(min(50.0 + abs(predicted_margin - spread) * COVER_CONFIDENCE_SCALE, 100.0), 1)
+
+
 def _normalize_weights(factors: list[FactorResult]) -> list[FactorResult]:
     """Redistribute weights so active (non-zero weight) factors sum to 1.0.
 
@@ -347,10 +368,7 @@ def predict_cover(
     # The score cache stores raw factor scores only — no confidence values — so no cache
     # rebuild is required. Just re-run the optimizer as normal (without --rebuild-cache).
     if spread is not None:
-        margin_disagreement = abs(predicted_margin - spread)
-        cover_confidence = round(
-            min(50.0 + margin_disagreement * COVER_CONFIDENCE_SCALE, 100.0), 1
-        )
+        cover_confidence = compute_cover_confidence(predicted_margin, spread)
     else:
         cover_confidence = 50.0
 

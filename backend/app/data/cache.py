@@ -117,6 +117,7 @@ def lock_game_to_cache(
         (predicted_winner, confidence, factors) from the fresh predict() call.
     """
     # Lazy imports to avoid circular dependency at module load time
+    from app.data.published import stamp_published, winner_snapshot
     from app.data.spreads import get_spread
     from app.prediction.engine import predict
 
@@ -149,6 +150,11 @@ def lock_game_to_cache(
         cache_entry["opening_spread"] = old_opening_spread
         cache_entry["opening_spread_captured_at"] = old_opening_spread_ts
         cache_entry["has_opening_spread"] = True
+    # A pre-game-day lock pins this pick as the published winner snapshot; on or
+    # after game day the frozen snapshot is carried over instead (published.py).
+    stamp_published(
+        cache_entry, old_entry, game_date, winner_snapshot(cache_entry, home, away), locked=True
+    )
 
     entries = [e for e in existing.values() if e.get("game_id") != cache_key]
     entries.append(cache_entry)
@@ -180,21 +186,30 @@ def apply_opening_spread(entry: dict, live_spread: float | None) -> None:
         entry["has_opening_spread"] = False
 
 
-def apply_weights(game: dict, weights: dict[str, float]) -> tuple[float, float]:
+def apply_weights(
+    game: dict, weights: dict[str, float], *, cover_mode: bool = False
+) -> tuple[float, float]:
     """Apply a weight profile to cached factor scores.
 
     Args:
         game: Single cache entry with a "factors" dict mapping factor name to
               {"score": float, "skipped": bool}.
         weights: Factor weight map (e.g. settings.weights or settings.cover_weights).
+        cover_mode: When True, forces betting_lines to weight 0 regardless of the
+            profile — the same rule _run_factors(cover_mode=True) applies on the
+            live predict_cover() path (betting_lines echoes the spread being
+            bet against). Without it, a non-zero COVER_WEIGHT_BETTING_LINES in
+            .env makes cached and live cover picks disagree for the same game.
 
     Returns:
         (weighted_sum, confidence) where weighted_sum is in [-100, +100] and
         confidence is in [50, 100]. Positive weighted_sum favours the home team.
+        confidence is the winner-style |weighted_sum| mapping — cover callers
+        should use engine.compute_cover_confidence() instead.
     """
     factors = game["factors"]
     effective_w = {
-        k: 0.0 if factors[k]["skipped"] else v
+        k: 0.0 if factors[k]["skipped"] or (cover_mode and k == "betting_lines") else v
         for k, v in weights.items()
         if k in factors
     }

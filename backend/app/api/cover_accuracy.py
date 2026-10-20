@@ -1,7 +1,7 @@
 """
 cover_accuracy.py - Season accuracy tracking for cover predictions.
 
-GET /api/v1/accuracy/covers?season=YYYY
+GET /api/v1/accuracy/covers?season=YYYY&basis=published|current
 """
 
 from collections import defaultdict
@@ -12,7 +12,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.accuracy import (
     _TIER_ORDER,
+    BASIS_QUERY_DESCRIPTION,
     AccuracyResponse,
+    Basis,
     TierAccuracy,
     WeekAccuracy,
     _confidence_tier,
@@ -23,7 +25,7 @@ from app.data.cache import apply_weights, load_cover_score_cache
 from app.data.loader import load_schedules
 from app.data.spreads import get_spread
 from app.prediction.calibration import COVER_MARGIN_INTERCEPT, COVER_MARGIN_SLOPE
-from app.prediction.engine import predict_cover
+from app.prediction.engine import compute_cover_confidence, predict_cover
 
 router = APIRouter(prefix="/api/v1")
 
@@ -31,19 +33,25 @@ router = APIRouter(prefix="/api/v1")
 @router.get("/accuracy/covers", response_model=AccuracyResponse)
 def get_cover_accuracy(
     season: int = Query(..., ge=2015, le=2030, description="NFL season year, e.g. 2024"),
+    basis: Basis = Query("published", description=BASIS_QUERY_DESCRIPTION),
 ) -> AccuracyResponse:
     """Compute cover prediction accuracy for all completed games in a season.
 
-    Games without spread data and pushes (actual margin == spread) are excluded
-    from the accuracy count. Confidence tiers use the same 50/60/70/80 bands.
+    Games without spread data and pushes (actual margin == the line the pick
+    was made against) are excluded from the accuracy count. Tiers bucket the
+    margin-vs-spread cover confidence shown on the cover card — the same
+    tier bands as winner accuracy.
 
     Args:
         season: NFL season year.
+        basis: "published" grades the frozen pre-kickoff pick (against the line
+            it was made on) where one exists; "current" re-derives every pick
+            with today's weights.
 
     Returns:
         AccuracyResponse with overall cover accuracy and breakdowns by week and tier.
     """
-    cached = accuracy_cache.get(season, "cover")
+    cached = accuracy_cache.get(season, f"cover:{basis}")
     if cached is not None:
         return cached
 
@@ -69,12 +77,14 @@ def get_cover_accuracy(
             accuracy=0.0,
             by_week=[],
             by_tier=[],
+            basis=basis,
         )
 
     week_stats: dict[int, dict[str, int]] = defaultdict(lambda: {"correct": 0, "total": 0})
     tier_stats: dict[str, dict[str, int]] = {t: {"correct": 0, "total": 0} for t in _TIER_ORDER}
     total_correct = 0
     total_picks = 0
+    published_games = 0
     score_cache = load_cover_score_cache()
 
     for _, row in completed.iterrows():
@@ -91,22 +101,41 @@ def get_cover_accuracy(
         game_date = date.fromisoformat(str(gameday_raw))
 
         cache_key = f"{home}-{away}-{game_date}"
-        if score_cache is not None and cache_key in score_cache:
-            cached = score_cache[cache_key]
-            weighted_sum, cover_confidence = apply_weights(cached, settings.cover_weights)
+        entry = score_cache.get(cache_key) if score_cache is not None else None
+        published = entry.get("published") if entry is not None else None
+        if (
+            basis == "published"
+            and published is not None
+            and published.get("cover") is not None
+            and published.get("spread") is not None
+        ):
+            # Grade the frozen pick against the line it was made on, not a
+            # line captured later. A snapshot without a line had no cover pick
+            # to publish, so those fall through to the current basis below.
+            spread = float(published["spread"])
+            if actual_margin == spread:
+                continue  # push — skip
+            predicted_cover = published["cover"]
+            cover_confidence = published["cover_confidence"]
+            published_games += 1
+        elif entry is not None:
+            weighted_sum, _ = apply_weights(entry, settings.cover_weights, cover_mode=True)
             # "spread" (historical CSV) is None for a season with no closing-line
             # CSV yet (e.g. current season); fall back to the live line captured
             # while the game was still upcoming, same as covers.py does.
-            _stored = cached.get("spread")
+            _stored = entry.get("spread")
             if _stored is None:
-                _stored = cached.get("live_spread")
-            spread: float | None = float(_stored) if _stored is not None else None
+                _stored = entry.get("live_spread")
+            spread = float(_stored) if _stored is not None else None
             if spread is None:
                 continue
             if actual_margin == spread:
                 continue  # push — skip
             predicted_margin = COVER_MARGIN_SLOPE * weighted_sum + COVER_MARGIN_INTERCEPT
-            predicted_cover: str | None = home if predicted_margin > spread else away
+            predicted_cover = home if predicted_margin > spread else away
+            # Tier by margin-vs-spread disagreement (what the cover card shows),
+            # not apply_weights()'s winner-style |weighted_sum| confidence.
+            cover_confidence = compute_cover_confidence(predicted_margin, spread)
         else:
             spread = get_spread(home, away, game_date)
             if spread is None:
@@ -138,6 +167,7 @@ def get_cover_accuracy(
             accuracy=0.0,
             by_week=[],
             by_tier=[],
+            basis=basis,
         )
 
     by_week = [
@@ -168,6 +198,8 @@ def get_cover_accuracy(
         accuracy=round(total_correct / total_picks * 100, 1),
         by_week=by_week,
         by_tier=by_tier,
+        basis=basis,
+        published_games=published_games,
     )
-    accuracy_cache.set(season, "cover", result)
+    accuracy_cache.set(season, f"cover:{basis}", result)
     return result

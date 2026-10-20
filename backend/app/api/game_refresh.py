@@ -5,10 +5,14 @@ POST /api/v1/predictions/{week}/{game_id}/refresh?season=
 Evicts a single upcoming game from score_cache.json, busts the betting-lines
 in-memory caches, re-runs predict() with fresh odds/weather, and writes the
 updated prediction back to cache (without the ``locked: True`` flag — this is a
-scheduler-style refresh, not a prediction-of-record commit).
+scheduler-style refresh, not a prediction-of-record commit). The game's
+cover_score_cache.json entry is recomputed in place the same way, carrying its
+opening/live line and frozen ``published`` snapshot across the eviction.
 
 Requires authentication. Returns a fresh GamePrediction.
 """
+
+import logging
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -18,19 +22,22 @@ import app.prediction.factors.betting_lines as _bl
 from app.auth.deps import get_current_user
 from app.config import settings
 from app.data.cache import (
+    apply_opening_spread,
     load_cover_score_cache,
     load_score_cache,
     write_cover_score_cache,
     write_score_cache,
 )
-from app.data.loader import load_schedules
+from app.data.loader import load_schedules, load_team_game_stats
+from app.data.published import cover_snapshot, stamp_published, winner_snapshot
 from app.data.spreads import get_spread
 from app.data.weather_cache import GameWeatherOut, get_game_weather_cached
 from app.prediction.engine import predict
 from app.prediction.models import FactorResult
-from app.scheduler import _parse_gameday
+from app.scheduler import _add_to_cover_cache, _parse_gameday
 from app.services.llm import evict_llm_response
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1")
 
 
@@ -134,14 +141,6 @@ def refresh_game_prediction(
         old_entry.get("opening_spread_captured_at") if old_entry else None
     )
 
-    # Also evict from cover cache so the next cover prediction is re-computed.
-    # allow_fallback=False prevents accidentally writing 6-factor winner entries
-    # into cover_score_cache.json if the cover cache file doesn't exist yet.
-    cover_cache = load_cover_score_cache(allow_fallback=False)
-    if cover_cache and cache_key in cover_cache:
-        cover_cache.pop(cache_key)
-        write_cover_score_cache(list(cover_cache.values()))
-
     # Bust in-memory odds caches so predict() fetches fresh bookmaker lines.
     _bl.bust_cache()
 
@@ -183,9 +182,45 @@ def refresh_game_prediction(
         new_entry["opening_spread"] = old_opening_spread
         new_entry["opening_spread_captured_at"] = old_opening_spread_ts
         new_entry["has_opening_spread"] = True
+    # Refresh the pre-kickoff published snapshot, or carry it if frozen (published.py).
+    stamp_published(new_entry, old_entry, game_date, winner_snapshot(new_entry, home, away))
 
     existing[cache_key] = new_entry
     write_score_cache(list(existing.values()))
+
+    # Recompute the cover entry in place rather than just evicting it: a bare
+    # eviction would drop its frozen published snapshot (and captured lines),
+    # and nothing could recreate them once game day arrives.
+    # allow_fallback=False prevents accidentally writing 6-factor winner entries
+    # into cover_score_cache.json if the cover cache file doesn't exist yet.
+    cover_cache = load_cover_score_cache(allow_fallback=False)
+    if cover_cache is not None:
+        old_cover = cover_cache.get(cache_key)
+        try:
+            fresh: dict[str, dict] = {}
+            _add_to_cover_cache(
+                home, away, season, game_date, schedules, load_team_game_stats(seasons), fresh,
+                opening_spread=old_cover.get("opening_spread") if old_cover else None,
+            )
+            new_cover = fresh[cache_key]
+            if old_cover is not None:
+                if old_cover.get("opening_spread") is not None:
+                    new_cover["opening_spread"] = old_cover["opening_spread"]
+                    new_cover["opening_spread_captured_at"] = old_cover.get(
+                        "opening_spread_captured_at"
+                    )
+                if new_cover.get("live_spread") is None:
+                    new_cover["live_spread"] = old_cover.get("live_spread")
+            apply_opening_spread(new_cover, new_cover.get("live_spread"))
+            stamp_published(
+                new_cover, old_cover, game_date, cover_snapshot(new_cover, home, away)
+            )
+            cover_cache[cache_key] = new_cover
+            write_cover_score_cache(list(cover_cache.values()))
+        except Exception:
+            # Leave the old cover entry (and its snapshot) in place; the next
+            # scheduler run recomputes it with the same carry-over.
+            logger.warning("Cover recompute failed for %s", cache_key, exc_info=True)
 
     # The prediction just changed underneath any cached LLM verdict/explain
     # for this game — evict it so a stale analysis isn't served as current.
